@@ -15,10 +15,31 @@ class Company(TimeStampModel):
     """
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255, default="default")
-    
+
     # QuickBooks fields
     realm_id = models.CharField(max_length=255, null=True, blank=True, db_index=True)
     is_connected = models.BooleanField(default=False)  # keep for admin / filtering
+
+    # QuickBooks Company Metadata
+    qb_company_name = models.CharField(max_length=255, null=True, blank=True)
+    qb_legal_name = models.CharField(max_length=255, null=True, blank=True)
+    qb_country = models.CharField(max_length=100, null=True, blank=True)
+    qb_address = models.JSONField(null=True, blank=True)  # Store full address object
+    qb_phone = models.CharField(max_length=50, null=True, blank=True)
+    qb_email = models.EmailField(null=True, blank=True)
+    qb_website = models.URLField(null=True, blank=True)
+    qb_fiscal_year_start = models.CharField(max_length=20, null=True, blank=True)
+    qb_supported_languages = models.CharField(max_length=100, null=True, blank=True)
+    qb_name_value = models.CharField(max_length=255, null=True, blank=True)  # Company display name from QB
+    qb_company_info = models.JSONField(null=True, blank=True)  # Store full company info response
+    currency_code = models.CharField(max_length=3, default='USD')  # Company currency from QB
+
+    # Invoice branding and template fields
+    logo_url = models.URLField(null=True, blank=True)  # Company logo URL
+    invoice_template_id = models.CharField(max_length=50, null=True, blank=True)  # QB template ID
+    invoice_logo_enabled = models.BooleanField(default=True)  # Show logo on invoices
+    brand_color = models.CharField(max_length=7, default='#0077C5')  # Hex color for branding
+    invoice_footer_text = models.TextField(null=True, blank=True)  # Custom footer text
 
     # Token information
     access_token = models.TextField(null=True, blank=True)
@@ -65,6 +86,81 @@ class Company(TimeStampModel):
             "access_token_expires_at",
             "token_data",
             "is_connected_db",
+        ])
+
+    def update_company_info(self, company_info: dict):
+        """
+        Update company metadata from QuickBooks CompanyInfo API response
+        """
+        if not company_info:
+            return
+
+        # Extract data from QB response
+        self.qb_company_info = company_info
+        self.qb_company_name = company_info.get("CompanyName")
+        self.qb_legal_name = company_info.get("LegalName")
+        self.qb_country = company_info.get("Country")
+        self.qb_fiscal_year_start = company_info.get("FiscalYearStartMonth")
+        self.qb_supported_languages = company_info.get("SupportedLanguages")
+        self.qb_name_value = company_info.get("Name")
+
+        # Handle currency - extract from preferences or default to USD
+        preferences = company_info.get("Preferences")
+        if preferences:
+            currency_prefs = preferences.get("CurrencyPrefs")
+            if currency_prefs:
+                self.currency_code = currency_prefs.get("HomeCurrency", {}).get("value", "USD")
+
+        # Handle address
+        address = company_info.get("CompanyAddr")
+        if address:
+            self.qb_address = address
+
+        # Handle email
+        email = company_info.get("Email")
+        if email and email.get("Address"):
+            self.qb_email = email["Address"]
+
+        # Handle phone
+        phone = company_info.get("PrimaryPhone")
+        if phone and phone.get("FreeFormNumber"):
+            self.qb_phone = phone["FreeFormNumber"]
+
+        # Handle website
+        website = company_info.get("WebAddr")
+        if website and website.get("URI"):
+            self.qb_website = website["URI"]
+
+        # Handle logo (if available in QB response)
+        logo_info = company_info.get("Logo")
+        if logo_info and logo_info.get("URI"):
+            self.logo_url = logo_info["URI"]
+
+        # Extract invoice template preferences (if available)
+        template_prefs = company_info.get("TemplateRef")
+        if template_prefs:
+            self.invoice_template_id = template_prefs.get("value")
+
+        # Update the display name to use QB company name if available
+        if self.qb_company_name and self.name == "default":
+            self.name = self.qb_company_name
+
+        self.save(update_fields=[
+            "name",
+            "qb_company_name",
+            "qb_legal_name",
+            "qb_country",
+            "qb_address",
+            "qb_phone",
+            "qb_email",
+            "qb_website",
+            "qb_fiscal_year_start",
+            "qb_supported_languages",
+            "qb_name_value",
+            "qb_company_info",
+            "currency_code",
+            "logo_url",
+            "invoice_template_id",
         ])
 
     def disconnect(self):

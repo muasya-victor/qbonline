@@ -8,8 +8,8 @@ from common.models import TimeStampModel
 
 class User(AbstractBaseUser, PermissionsMixin):
     ROLE_CHOICES = [
-        ("Mentor", "Mentor"),
-        ("Mentee", "Mentee"),
+        ("Mentor", "Client"),
+        ("Mentee", "Manager"),
         ("SystemAdmin", "System Admin"),
     ]
 

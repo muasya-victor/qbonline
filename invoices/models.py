@@ -23,6 +23,8 @@ class Invoice(TimeStampModel):
     # Amounts
     total_amt = models.DecimalField(max_digits=15, decimal_places=2)
     balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     
     # Status and metadata
     private_note = models.TextField(blank=True, null=True)
@@ -59,6 +61,11 @@ class InvoiceLine(TimeStampModel):
     qty = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     unit_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+
+    # Tax information
+    tax_code_ref = models.CharField(max_length=50, blank=True, null=True)
+    tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=4, default=0)  # e.g., 0.0825 for 8.25%
     
     # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)

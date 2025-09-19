@@ -34,6 +34,9 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1", "212.47.77.18"]
 
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_AGE = 600  # 10 minutes for OAuth
+SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = False 
 
@@ -83,7 +86,8 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://212.47.77.18",   
+    "http://localhost:3001",  # Frontend dev server
+    "http://212.47.77.18",
 ]
 
 
