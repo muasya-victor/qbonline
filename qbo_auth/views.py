@@ -234,8 +234,11 @@ class QuickBooksCallbackView(APIView):
     
     def post(self, request):
         data = request.data
+
+        print(data, 'data')
         
         auth_code = data.get("code")
+
         realm_id = data.get("realmId")
         returned_state = data.get("state")
 

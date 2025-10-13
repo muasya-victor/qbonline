@@ -100,26 +100,22 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=['post'])
     def sync_from_quickbooks(self, request):
         """Sync invoices from QuickBooks API"""
-        active_company = get_active_company(request.user)
-        if not active_company:
-            return Response({
-                'success': False,
-                'error': 'No active company selected',
-                'message': 'Please select a company first'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        if not active_company.is_connected:
-            return Response({
-                'success': False,
-                'error': 'Company is not connected to QuickBooks',
-                'message': 'Please reconnect your QuickBooks account'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
         try:
+            active_company_record = ActiveCompany.objects.select_related("company").filter(user=request.user).first()
+
+            if not active_company_record:
+                return Response({
+                    'success': False,
+                    'error': 'No active company selected',
+                    'message': 'Please select or set an active company first.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            active_company = active_company_record.company
+
+            # Proceed with sync
             service = QuickBooksInvoiceService(active_company)
             synced_count = service.sync_all_invoices()
 
-            # Serialize company info for response
             company_serializer = CompanyInfoSerializer(active_company)
 
             return Response({
@@ -128,6 +124,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 'synced_count': synced_count,
                 'company_info': company_serializer.data
             })
+
         except ValueError as e:
             return Response({
                 'success': False,

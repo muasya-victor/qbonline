@@ -1,10 +1,11 @@
 # invoices/services.py
 import requests
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from django.utils import timezone
 from datetime import datetime
 from .models import Invoice, InvoiceLine
 from users.models import Company
+import json
 
 """
 2. Does your app capture the value of the intuit_tid field from response headers?
@@ -31,21 +32,48 @@ class QuickBooksInvoiceService:
             'Accept': 'application/json'
         }
     
-    def fetch_invoices_from_qb(self) -> List[Dict]:
-        """Fetch all invoices from QuickBooks API"""
+    def fetch_invoices_from_qb(self) -> List[Dict[str, Any]]:
+        """Fetch all invoices from QuickBooks API (handles pagination)"""
         url = f"{self.BASE_URL}/v3/company/{self.company.realm_id}/query"
-        query = "SELECT * FROM Invoice MAXRESULTS 1000"
-        
-        response = requests.get(
-            url,
-            headers=self.get_headers(),
-            params={'query': query},
-            timeout=30
-        )
-        response.raise_for_status()
-        
-        data = response.json()
-        return data.get('QueryResponse', {}).get('Invoice', [])
+        all_invoices = []
+        start_position = 1
+        batch_size = 1000
+
+        while True:
+            query = f"SELECT * FROM Invoice STARTPOSITION {start_position} MAXRESULTS {batch_size}"
+            print(f"🔹 Fetching invoices {start_position}–{start_position + batch_size - 1}")
+
+            response = requests.get(
+                url,
+                headers=self.get_headers(),
+                params={'query': query},
+                timeout=30
+            )
+            response.raise_for_status()
+
+            try:
+                data = response.json()
+                print(json.dumps(data, indent=2))  # Pretty-print JSON
+            except ValueError:
+                print("❌ Response is not valid JSON:")
+                print(response.text)
+                raise
+
+            invoices = data.get("QueryResponse", {}).get("Invoice", [])
+            if not invoices:
+                break
+
+            all_invoices.extend(invoices)
+            print(f"✅ Retrieved {len(invoices)} invoices in this batch (total so far: {len(all_invoices)})")
+
+            # Stop if fewer than 1000 were returned — means we’re at the end
+            if len(invoices) < batch_size:
+                break
+
+            start_position += batch_size
+
+        print(f"🎯 Finished fetching {len(all_invoices)} total invoices.")
+        return all_invoices
     
     def sync_invoice_to_db(self, invoice_data: Dict) -> Invoice:
         """Sync single invoice to database"""
