@@ -80,10 +80,12 @@ class InvoiceAdmin(admin.ModelAdmin):
 
     def total_amt_formatted(self, obj):
         """Display formatted total amount with currency"""
-        if obj.company and obj.company.currency_code:
+        # Try to get currency from invoice raw data first, then company, then default to USD
+        currency = 'USD'
+        if obj.raw_data and 'CurrencyRef' in obj.raw_data:
+            currency = obj.raw_data['CurrencyRef'].get('value', 'USD')
+        elif obj.company and obj.company.currency_code:
             currency = obj.company.currency_code
-        else:
-            currency = 'USD'
 
         if obj.total_amt:
             return format_html(
@@ -96,19 +98,21 @@ class InvoiceAdmin(admin.ModelAdmin):
 
     def balance_formatted(self, obj):
         """Display formatted balance with currency and color coding"""
-        if obj.company and obj.company.currency_code:
+        # Try to get currency from invoice raw data first, then company, then default to USD
+        currency = 'USD'
+        if obj.raw_data and 'CurrencyRef' in obj.raw_data:
+            currency = obj.raw_data['CurrencyRef'].get('value', 'USD')
+        elif obj.company and obj.company.currency_code:
             currency = obj.company.currency_code
-        else:
-            currency = 'USD'
 
         if obj.balance is not None:
             balance = float(obj.balance)
             if balance > 0:
                 color = "red"  # Outstanding balance
-                style = f"color: {color}; font-weight: bold;"
+                style = "color: {}; font-weight: bold;".format(color)
             else:
                 color = "green"  # Paid
-                style = f"color: {color};"
+                style = "color: {};".format(color)
 
             return format_html(
                 '<span style="{}">{} {:.2f}</span>',
@@ -220,23 +224,27 @@ class InvoiceLineAdmin(admin.ModelAdmin):
 
     def unit_price_formatted(self, obj):
         """Display formatted unit price with currency"""
-        if obj.invoice.company and obj.invoice.company.currency_code:
+        # Try to get currency from invoice raw data first, then company, then default to USD
+        currency = 'USD'
+        if obj.invoice.raw_data and 'CurrencyRef' in obj.invoice.raw_data:
+            currency = obj.invoice.raw_data['CurrencyRef'].get('value', 'USD')
+        elif obj.invoice.company and obj.invoice.company.currency_code:
             currency = obj.invoice.company.currency_code
-        else:
-            currency = 'USD'
 
         if obj.unit_price:
-            return f"{currency} {float(obj.unit_price):.2f}"
+            return "{} {:.2f}".format(currency, float(obj.unit_price))
         return '-'
     unit_price_formatted.short_description = 'Unit Price'
     unit_price_formatted.admin_order_field = 'unit_price'
 
     def amount_formatted(self, obj):
         """Display formatted amount with currency"""
-        if obj.invoice.company and obj.invoice.company.currency_code:
+        # Try to get currency from invoice raw data first, then company, then default to USD
+        currency = 'USD'
+        if obj.invoice.raw_data and 'CurrencyRef' in obj.invoice.raw_data:
+            currency = obj.invoice.raw_data['CurrencyRef'].get('value', 'USD')
+        elif obj.invoice.company and obj.invoice.company.currency_code:
             currency = obj.invoice.company.currency_code
-        else:
-            currency = 'USD'
 
         if obj.amount:
             return format_html(

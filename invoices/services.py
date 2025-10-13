@@ -6,11 +6,18 @@ from datetime import datetime
 from .models import Invoice, InvoiceLine
 from users.models import Company
 
+"""
+2. Does your app capture the value of the intuit_tid field from response headers?
+Tip: We recommend you capture this field. It will help our support team quickly identify issues when troubleshooting.
 
+3. Does your app have a mechanism for storing all error information in logs that can be shared for troubleshooting purposes, if required?
+Tip: We recommend you maintain logs. It will help our support team quickly identify issues when troubleshooting.
+"""
 class QuickBooksInvoiceService:
     """Service to fetch and sync invoices from QuickBooks API"""
     
     BASE_URL = "https://sandbox-quickbooks.api.intuit.com"
+    # BASE_URL = "https://quickbooks.api.intuit.com"
     
     def __init__(self, company: Company):
         self.company = company

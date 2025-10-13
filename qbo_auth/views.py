@@ -27,7 +27,9 @@ User = get_user_model()
 AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
+# USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
 COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
+# COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
 
 
 class UserRegistrationView(APIView):
@@ -146,27 +148,27 @@ class QuickBooksAuthURLView(APIView):
         company_details = get_default_company_by_email(email)
 
         # If user has a connected company, return it
-        if company_details and company_details.get("connection_status") == "connected":
-            # Set/update active company
-            try:
-                company = Company.objects.get(id=company_details["company_id"])
-                active_company, created = ActiveCompany.objects.update_or_create(
-                    user=user,
-                    defaults={"company": company}
-                )
-                logger.info(f"ActiveCompany {'created' if created else 'updated'}: {active_company}")
-            except Company.DoesNotExist:
-                logger.warning(f"Company {company_details['company_id']} not found in DB")
-                company_details = None
+        # if company_details and company_details.get("connection_status") == "connected":
+        #     # Set/update active company
+        #     try:
+        #         company = Company.objects.get(id=company_details["company_id"])
+        #         active_company, created = ActiveCompany.objects.update_or_create(
+        #             user=user,
+        #             defaults={"company": company}
+        #         )
+        #         logger.info(f"ActiveCompany {'created' if created else 'updated'}: {active_company}")
+        #     except Company.DoesNotExist:
+        #         logger.warning(f"Company {company_details['company_id']} not found in DB")
+        #         company_details = None
 
-            if company_details:
-                return Response({
-                    "success": True,
-                    "company": company_details,
-                    "is_connected": True,
-                    "authUrl": None,
-                    "tokens": jwt_tokens
-                })
+        #     if company_details:
+        #         return Response({
+        #             "success": True,
+        #             "company": company_details,
+        #             "is_connected": True,
+        #             "authUrl": None,
+        #             "tokens": jwt_tokens
+        #         })
 
         # Generate OAuth URL for new connection (no company or disconnected company)
         auth_url = self._generate_oauth_url(request, scopes, user)
@@ -178,7 +180,7 @@ class QuickBooksAuthURLView(APIView):
 
         return Response({
             "success": True,
-            "company": company_details,  # Will be None for new users
+            "company": company_details,  
             "is_connected": False,
             "authUrl": auth_url,
             "tokens": jwt_tokens,
