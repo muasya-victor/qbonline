@@ -39,7 +39,7 @@ class CustomUserAdmin(admin.ModelAdmin):
 
 @admin.register(Company)
 class CompanyAdmin(admin.ModelAdmin):
-    list_display = ("id", "name", "qb_company_name", "realm_id", "connection_status", "currency_display", "member_count", "created_by", "created_at")
+    list_display = ("id", "name", "qb_company_name", "realm_id", "connection_status", "currency_display", "member_count","invoice_template_id", "created_by", "created_at")
     list_filter = ("is_connected_db", "currency_code", "created_at")
     search_fields = ("name", "qb_company_name", "realm_id", "created_by__email")
     ordering = ("-created_at",)

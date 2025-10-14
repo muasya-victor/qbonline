@@ -37,6 +37,7 @@ class Company(TimeStampModel):
     # Invoice branding and template fields
     logo_url = models.URLField(null=True, blank=True)  # Company logo URL
     invoice_template_id = models.CharField(max_length=50, null=True, blank=True)  # QB template ID
+    invoice_template_name = models.CharField(max_length=255, null=True, blank=True)
     invoice_logo_enabled = models.BooleanField(default=True)  # Show logo on invoices
     brand_color = models.CharField(max_length=7, default='#0077C5')  # Hex color for branding
     invoice_footer_text = models.TextField(null=True, blank=True)  # Custom footer text

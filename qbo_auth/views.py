@@ -186,7 +186,8 @@ class QuickBooksAuthURLView(APIView):
             "tokens": jwt_tokens,
             "message": "Please connect your QuickBooks company to continue."
         })
-
+    
+    
     def _generate_oauth_url(self, request, scopes, user):
         """
         Generate QuickBooks OAuth URL with state parameter
@@ -320,6 +321,8 @@ class QuickBooksCallbackView(APIView):
 
         # Fetch and store company information from QuickBooks
         self._fetch_and_store_company_info(company, tokens.get("access_token"))
+        self._fetch_and_store_company_preferences(company, tokens.get("access_token"))
+
 
         membership, _ = CompanyMembership.objects.get_or_create(
             user=request.user,
@@ -367,6 +370,45 @@ class QuickBooksCallbackView(APIView):
             "user": user_info,
             "tokens": jwt_tokens
         })
+
+    def _fetch_and_store_company_preferences(self, company, access_token):
+        """
+        Fetch QuickBooks preferences to get default invoice template name and ID
+        """
+        if not access_token or not company.realm_id:
+            logger.warning("Missing access_token or realm_id for company preferences fetch")
+            return
+
+        try:
+            url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/preferences"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json"
+            }
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+
+            print("company pref", data)
+
+            prefs = data.get("Preferences", {})
+            sales_prefs = prefs.get("SalesFormsPrefs", {})
+            template_ref = sales_prefs.get("DefaultInvoiceTemplateRef", {})
+
+            if template_ref:
+                company.invoice_template_id = template_ref.get("value")
+                company.invoice_template_name = template_ref.get("name")
+                company.save(update_fields=["invoice_template_id", "invoice_template_name"])
+                logger.info(
+                    f"Stored invoice template for {company.realm_id}: "
+                    f"{company.invoice_template_name} ({company.invoice_template_id})"
+                )
+            else:
+                logger.info(f"No DefaultInvoiceTemplateRef found for company {company.realm_id}")
+
+        except requests.RequestException as e:
+            logger.error(f"Error fetching preferences from QuickBooks: {str(e)}")
+
 
     def _fetch_and_store_company_info(self, company, access_token):
         """

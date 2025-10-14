@@ -6,7 +6,7 @@ from .models import OAuthState
 
 @admin.register(OAuthState)
 class OAuthStateAdmin(admin.ModelAdmin):
-    list_display = ("id", "state_preview", "user_email", "status_display", "validity_display", "created_at", "time_since_created")
+    list_display = ("id", "state_preview", "user_email", "status_display", "validity_display", "created_at", "time_since_created",)
     list_filter = ("used", "created_at")
     search_fields = ("state", "user__email", "user__first_name", "user__last_name")
     ordering = ("-created_at",)

@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     'common',
     'users',
     'invoices',
+    'creditnote',
 ]
 
 AUTH_USER_MODEL = "users.User"

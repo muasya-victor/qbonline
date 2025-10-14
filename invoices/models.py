@@ -30,6 +30,12 @@ class Invoice(TimeStampModel):
     private_note = models.TextField(blank=True, null=True)
     customer_memo = models.TextField(blank=True, null=True)
     sync_token = models.CharField(max_length=50)
+
+    # Template info (QuickBooks CustomTemplateRef)
+    template_id = models.CharField(max_length=100, blank=True, null=True, help_text="QuickBooks template ID used for this invoice")
+    template_name = models.CharField(max_length=255, blank=True, null=True, help_text="Name of the QuickBooks template")
+
+
     
     # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
@@ -65,7 +71,7 @@ class InvoiceLine(TimeStampModel):
     # Tax information
     tax_code_ref = models.CharField(max_length=50, blank=True, null=True)
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    tax_rate = models.DecimalField(max_digits=5, decimal_places=4, default=0)  # e.g., 0.0825 for 8.25%
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=4, default=0) 
     
     # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
