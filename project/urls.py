@@ -7,4 +7,5 @@ urlpatterns = [
     path('api/', include('qbo_auth.urls')),
     path('api/', include('invoices.urls')),
     path('api/', include('creditnote.urls')),
+    path('api/', include('customers.urls')),
 ]
