@@ -6,7 +6,7 @@ from django.utils import timezone
 from datetime import datetime
 
 from .models import Customer
-from users.models import Company
+from companies.models import Company
 
 class QuickBooksCustomerService:
     """Service to manage customer operations with QuickBooks API"""

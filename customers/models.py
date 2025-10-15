@@ -1,6 +1,6 @@
 # customers/models.py
 from django.db import models
-from users.models import Company
+from companies.models import Company
 from common.models import TimeStampModel
 
 class Customer(TimeStampModel):

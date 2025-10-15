@@ -7,7 +7,7 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.utils import timezone
-from users.models import Company, CompanyMembership, ActiveCompany
+from companies.models import Company, CompanyMembership, ActiveCompany
 from .models import OAuthState
 from .utils import get_default_company_by_email
 from rest_framework.permissions import IsAuthenticated

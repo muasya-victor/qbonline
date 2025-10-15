@@ -8,7 +8,7 @@ from django.db.models import Q
 from .models import CreditNote
 from .serializers import CreditNoteSerializer
 from invoices.services import QuickBooksCreditNoteService
-from users.models import Company, ActiveCompany
+from companies.models import Company, ActiveCompany
 
 
 class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):

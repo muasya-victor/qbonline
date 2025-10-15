@@ -3,7 +3,7 @@ from django.dispatch import receiver
 from django.conf import settings
 from django.contrib.auth import get_user_model
 
-from .models import Company, CompanyMembership
+from companies.models import Company, CompanyMembership
 
 User = get_user_model()
 

@@ -2,7 +2,7 @@
 from django.db import models
 from django.conf import settings
 from common.models import TimeStampModel
-from users.models import Company
+from companies.models import Company
 
 User = settings.AUTH_USER_MODEL
 

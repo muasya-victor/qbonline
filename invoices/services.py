@@ -4,7 +4,7 @@ from typing import List, Dict, Optional, Any
 from django.utils import timezone
 from datetime import datetime
 from .models import Invoice, InvoiceLine
-from users.models import Company
+from companies.models import Company
 import json
 from creditnote.models import CreditNote, CreditNoteLine
 

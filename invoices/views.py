@@ -9,7 +9,7 @@ from django.db.models import Q
 from .models import Invoice
 from .serializers import InvoiceSerializer, CompanyInfoSerializer
 from .services import QuickBooksInvoiceService
-from users.models import ActiveCompany
+from companies.models import ActiveCompany
 
 
 def get_active_company(user):

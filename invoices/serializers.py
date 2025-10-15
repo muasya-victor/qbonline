@@ -1,7 +1,7 @@
 # invoices/serializers.py
 from rest_framework import serializers
 from .models import Invoice, InvoiceLine
-from users.models import Company
+from companies.models import Company
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
     """Serializer for invoice line items"""

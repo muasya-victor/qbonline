@@ -3,7 +3,7 @@ from datetime import timedelta
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
-from common.models import TimeStampModel  # base model with created/updated fields
+from common.models import TimeStampModel  
 
 User = settings.AUTH_USER_MODEL
 

@@ -10,7 +10,7 @@ from typing import Dict,Any
 from .models import Customer
 from .serializers import CustomerSerializer, CustomerCreateUpdateSerializer
 from .services import QuickBooksCustomerService
-from users.models import Company, ActiveCompany
+from companies.models import Company, ActiveCompany
 
 
 class CustomerViewSet(viewsets.ModelViewSet):

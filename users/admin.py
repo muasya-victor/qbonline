@@ -3,7 +3,7 @@ from django.contrib.auth import get_user_model
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils.safestring import mark_safe
-from .models import Company, CompanyMembership, ActiveCompany
+from companies.models import Company, CompanyMembership, ActiveCompany
 
 User = get_user_model()
 
