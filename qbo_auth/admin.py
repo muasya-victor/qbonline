@@ -2,11 +2,21 @@ from django.contrib import admin
 from django.utils.html import format_html
 from django.urls import reverse
 from django.utils import timezone
+from django.contrib.contenttypes.models import ContentType
 from .models import OAuthState
+
 
 @admin.register(OAuthState)
 class OAuthStateAdmin(admin.ModelAdmin):
-    list_display = ("id", "state_preview", "user_email", "status_display", "validity_display", "created_at", "time_since_created",)
+    list_display = (
+        "id",
+        "state_preview",
+        "user_email",
+        "status_display",
+        "validity_display",
+        "created_at",
+        "time_since_created",
+    )
     list_filter = ("used", "created_at")
     search_fields = ("state", "user__email", "user__first_name", "user__last_name")
     ordering = ("-created_at",)
@@ -18,8 +28,14 @@ class OAuthStateAdmin(admin.ModelAdmin):
     state_preview.short_description = "State Preview"
 
     def user_email(self, obj):
-        url = reverse('admin:auth_user_change', args=[obj.user.id])
-        return format_html('<a href="{}">{}</a>', url, obj.user.email)
+        # Dynamically get the admin URL for the user model
+        try:
+            user_ct = ContentType.objects.get_for_model(obj.user)
+            url_name = f"admin:{user_ct.app_label}_{user_ct.model}_change"
+            url = reverse(url_name, args=[obj.user.id])
+            return format_html('<a href="{}">{}</a>', url, obj.user.email)
+        except Exception:
+            return obj.user.email
     user_email.short_description = "User"
 
     def status_display(self, obj):

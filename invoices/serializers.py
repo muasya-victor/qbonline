@@ -2,6 +2,7 @@
 from rest_framework import serializers
 from .models import Invoice, InvoiceLine
 from companies.models import Company
+from kra.models import KRAInvoiceSubmission
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
     """Serializer for invoice line items"""
@@ -15,19 +16,39 @@ class InvoiceLineSerializer(serializers.ModelSerializer):
         ]
 
 
+class KRASubmissionSerializer(serializers.ModelSerializer):
+    """Serializer for KRA invoice submissions"""
+
+    class Meta:
+        model = KRAInvoiceSubmission
+        fields = [
+            'id', 'kra_invoice_number', 'trd_invoice_no', 'status',
+            'submitted_data', 'response_data', 'error_message',
+            'qr_code_data', 'receipt_signature', 'created_at', 'updated_at'
+        ]
+
+
 class InvoiceSerializer(serializers.ModelSerializer):
     """Serializer for invoices with company currency support"""
 
     line_items = InvoiceLineSerializer(many=True, read_only=True)
     currency_code = serializers.CharField(source='company.currency_code', read_only=True)
     status = serializers.SerializerMethodField()
+    is_kra_validated = serializers.SerializerMethodField()
+    
+    # New field for KRA submissions
+    # kra_submissions = KRASubmissionSerializer(many=True, read_only=True)
+    
+    # For backward compatibility - latest submission
+    kra_submission = serializers.SerializerMethodField()
 
     class Meta:
         model = Invoice
         fields = [
             'id', 'qb_invoice_id', 'doc_number', 'txn_date', 'due_date',
             'customer_name', 'total_amt', 'balance', 'subtotal', 'tax_total',
-            'private_note', 'customer_memo', 'currency_code', 'status', 'line_items','is_kra_validated'
+            'private_note', 'customer_memo', 'currency_code', 'status', 
+            'line_items', 'is_kra_validated',  'kra_submission'
         ]
 
     def get_status(self, obj):
@@ -39,6 +60,17 @@ class InvoiceSerializer(serializers.ModelSerializer):
         else:
             return 'partial'
 
+    def get_is_kra_validated(self, obj):
+        """Check if invoice has been successfully validated with KRA"""
+        return obj.kra_submissions.filter(status__in=['success', 'signed']).exists()
+
+    def get_kra_submission(self, obj):
+        """Get the latest KRA submission for this invoice (backward compatibility)"""
+        latest_submission = obj.kra_submissions.order_by('-created_at').first()
+        if latest_submission:
+            return KRASubmissionSerializer(latest_submission).data
+        return None
+    
 
 class CompanyInfoSerializer(serializers.ModelSerializer):
     """Serializer for company information in API responses"""

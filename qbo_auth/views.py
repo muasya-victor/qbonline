@@ -18,18 +18,23 @@ from django.views.decorators.csrf import csrf_exempt
 from django.utils.decorators import method_decorator
 import json
 from rest_framework.views import APIView
+from typing import Dict
 from django.db import IntegrityError
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
 
-# Endpoints
+# Endpoints - SANDBOX ENVIRONMENT (use all sandbox URLs)
 AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 # USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
+# COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
+# PREFERENCES_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
+
+# PRODUCTION URLs (comment out when using sandbox)
 USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
-# COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
-COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
+COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
+PREFERENCES_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
 
 
 class UserRegistrationView(APIView):
@@ -104,9 +109,10 @@ class UserRegistrationView(APIView):
             )
 
 
-class QuickBooksAuthURLView(APIView): # login view
+class QuickBooksAuthURLView(APIView):
     """
     Generate QuickBooks OAuth URL after user authentication
+    Returns tokens only during initial login
     """
     
     def post(self, request):
@@ -137,7 +143,7 @@ class QuickBooksAuthURLView(APIView): # login view
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # Generate JWT tokens
+        # Generate JWT tokens ONLY during initial login
         refresh = RefreshToken.for_user(user)
         jwt_tokens = {
             "refresh": str(refresh), 
@@ -147,30 +153,7 @@ class QuickBooksAuthURLView(APIView): # login view
         # Get user's default company (if any)
         company_details = get_default_company_by_email(email)
 
-        # If user has a connected company, return it
-        # if company_details and company_details.get("connection_status") == "connected":
-        #     # Set/update active company
-        #     try:
-        #         company = Company.objects.get(id=company_details["company_id"])
-        #         active_company, created = ActiveCompany.objects.update_or_create(
-        #             user=user,
-        #             defaults={"company": company}
-        #         )
-        #         logger.info(f"ActiveCompany {'created' if created else 'updated'}: {active_company}")
-        #     except Company.DoesNotExist:
-        #         logger.warning(f"Company {company_details['company_id']} not found in DB")
-        #         company_details = None
-
-        #     if company_details:
-        #         return Response({
-        #             "success": True,
-        #             "company": company_details,
-        #             "is_connected": True,
-        #             "authUrl": None,
-        #             "tokens": jwt_tokens
-        #         })
-
-        # Generate OAuth URL for new connection (no company or disconnected company)
+        # Generate OAuth URL for new connection
         auth_url = self._generate_oauth_url(request, scopes, user)
         if not auth_url:
             return Response(
@@ -183,7 +166,7 @@ class QuickBooksAuthURLView(APIView): # login view
             "company": company_details,  
             "is_connected": False,
             "authUrl": auth_url,
-            "tokens": jwt_tokens,
+            "tokens": jwt_tokens,  # Tokens only returned during initial login
             "message": "Please connect your QuickBooks company to continue."
         })
     
@@ -201,9 +184,7 @@ class QuickBooksAuthURLView(APIView): # login view
 
         # Generate and store state in database
         state = secrets.token_urlsafe(32)
-
-        # Clean up any expired states first
-        OAuthState.cleanup_expired()
+        print("🔄 Generating OAuth state:", state)
 
         # Store state in database for reliable persistence
         try:
@@ -211,9 +192,12 @@ class QuickBooksAuthURLView(APIView): # login view
                 state=state,
                 user=user
             )
-            logger.info(f"Generated OAuth state: {state[:8]}... for user: {user.id}, stored in DB with ID: {oauth_state.id}")
+            print(f"✅ OAuth state created for user: {user.email} (ID: {user.id})")
+            print(f"✅ State stored in DB with ID: {oauth_state.id}")
+            
         except Exception as e:
             logger.error(f"Failed to create OAuth state: {e}")
+            print(f"❌ ERROR creating OAuth state: {e}")
             return None
 
         # Build OAuth URL
@@ -225,24 +209,31 @@ class QuickBooksAuthURLView(APIView): # login view
             "state": state,
         }
         
-        return f"{AUTH_BASE_URL}?{urlencode(params)}"
+        auth_url = f"{AUTH_BASE_URL}?{urlencode(params)}"
+        print(f"🔗 Generated OAuth URL with state: {state}")
+        return auth_url
+
 
 class QuickBooksCallbackView(APIView):
     """
     Class-based view for QuickBooks OAuth callback with authentication
+    NO token generation here to avoid session conflicts
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        data = request.data
-
-        print(data, 'data')
+        print("🚀 === QUICKBOOKS CALLBACK STARTED ===")
         
+        data = request.data
         auth_code = data.get("code")
         realm_id = data.get("realmId")
         returned_state = data.get("state")
 
+        print(f"👤 Callback received for user: {request.user.id} - {request.user.email}")
+        print(f"📨 Callback data - code: {auth_code[:10] if auth_code else 'None'}..., realm_id: {realm_id}, state: {returned_state}")
+
         if not auth_code:
+            logger.error("Missing authorization code in callback")
             return Response(
                 {"success": False, "error": "Missing authorization code."},
                 status=status.HTTP_400_BAD_REQUEST
@@ -255,8 +246,23 @@ class QuickBooksCallbackView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        # Clean up expired states first
-        OAuthState.cleanup_expired()
+        # FIRST: Check if this state was already used (duplicate request)
+        try:
+            used_state = OAuthState.objects.get(
+                state=returned_state,
+                user=request.user,
+                used=True
+            )
+            print(f"🔄 Duplicate request detected - state already used at: {used_state.created_at}")
+            # If it was already used successfully, return success
+            return Response({
+                "success": True,
+                "message": "OAuth flow already completed successfully.",
+                "duplicate": True
+            })
+        except OAuthState.DoesNotExist:
+            # Continue with normal flow
+            pass
 
         # Validate state using database
         try:
@@ -265,6 +271,9 @@ class QuickBooksCallbackView(APIView):
                 user=request.user,
                 used=False
             )
+            print(f"✅ State validation SUCCESS - found state ID: {oauth_state.id}")
+            print(f"✅ State created at: {oauth_state.created_at}")
+            print(f"✅ State is valid: {oauth_state.is_valid()}")
 
             if not oauth_state.is_valid():
                 logger.warning(f"Expired OAuth state for user {request.user.id}: {returned_state[:8]}...")
@@ -273,12 +282,21 @@ class QuickBooksCallbackView(APIView):
                     status=status.HTTP_403_FORBIDDEN
                 )
 
-            # Mark state as used to prevent replay attacks
-            oauth_state.mark_used()
+            # DON'T mark as used yet - wait until entire flow completes
             logger.info(f"Successfully validated OAuth state for user {request.user.id}: {returned_state[:8]}...")
 
         except OAuthState.DoesNotExist:
-            logger.warning(f"Invalid OAuth state for user {request.user.id}: {returned_state[:8]}... - not found in database")
+            print(f"❌ State validation FAILED - state not found in database")
+            print(f"❌ User {request.user.id} looked for state: {returned_state}")
+            
+            # Check what states are available for this user
+            user_states = OAuthState.objects.filter(user=request.user, used=False)
+            available_states = list(user_states.values_list('state', flat=True))
+            print(f"❌ Available states for this user: {available_states}")
+            
+            logger.error(f"❌ State validation FAILED - state not found in database")
+            logger.error(f"User {request.user.id} looked for state: {returned_state}")
+            logger.error(f"Available states for this user: {available_states}")
             return Response(
                 {"success": False, "error": "Invalid OAuth state. Please try logging in again."},
                 status=status.HTTP_403_FORBIDDEN
@@ -288,7 +306,13 @@ class QuickBooksCallbackView(APIView):
         client_secret = os.environ.get("QBO_CLIENT_SECRET")
         redirect_uri = os.environ.get("QBO_REDIRECT_URI_FRONTEND")
 
+        # DEBUG: Log OAuth configuration (mask secrets)
+        print(f"🔧 OAuth config - Client ID: {client_id[:10]}..., Redirect URI: {redirect_uri}")
+
         try:
+            print("🔄 Starting token exchange with Intuit...")
+            logger.info("Starting token exchange with Intuit...")
+            
             token_response = requests.post(
                 TOKEN_URL,
                 headers={"Accept": "application/json"},
@@ -300,41 +324,76 @@ class QuickBooksCallbackView(APIView):
                 auth=(client_id, client_secret),
                 timeout=30,
             )
+            
+            print(f"📨 Token exchange response status: {token_response.status_code}")
+            logger.info(f"Token exchange response status: {token_response.status_code}")
+            
             token_response.raise_for_status()
+            
             tokens = token_response.json()
+            print(f"✅ Token exchange successful for realm {realm_id}")
+            logger.info(f"✅ Token exchange successful for realm {realm_id}")
+            
         except requests.RequestException as e:
+            logger.error(f"❌ Token exchange failed: {str(e)}")
+            
+            # ADD DETAILED DEBUGGING:
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"❌ Intuit response status: {e.response.status_code}")
+                print(f"❌ Intuit response body: {e.response.text}")
+                logger.error(f"Intuit response status: {e.response.status_code}")
+                logger.error(f"Intuit response body: {e.response.text}")
+                
+                # Try to parse JSON error response
+                try:
+                    error_data = e.response.json()
+                    print(f"❌ Intuit error details: {error_data}")
+                    logger.error(f"Intuit error details: {error_data}")
+                except:
+                    print("❌ Intuit error response is not JSON")
+                    logger.error("Intuit error response is not JSON")
+            else:
+                print("❌ No response received from Intuit")
+                logger.error("No response received from Intuit")
+            
+            # Don't mark state as used - let user retry
             return Response(
                 {"success": False, "error": f"Token exchange failed: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # FIX: Handle duplicate companies properly
+        # Handle company creation with transaction to prevent race conditions
+        from django.db import transaction
+        
         try:
-            # First, try to get existing company for this user with this realm_id
-            company = Company.objects.filter(
-                realm_id=realm_id,
-                memberships__user=request.user
-            ).first()
-            
-            created = False
-            
-            if not company:
-                # If no company exists for this user, check if company exists for other users
-                existing_company = Company.objects.filter(realm_id=realm_id).first()
+            with transaction.atomic():
+                # First, try to get existing company for this user with this realm_id
+                company = Company.objects.filter(
+                    realm_id=realm_id,
+                    memberships__user=request.user
+                ).first()
                 
-                if existing_company:
-                    # Company exists but user doesn't have access - add them as member
-                    company = existing_company
-                    created = False
-                else:
-                    # Create new company
-                    company = Company.objects.create(
-                        realm_id=realm_id,
-                        name=f"Company-{realm_id}",
-                        created_by=request.user
-                    )
-                    created = True
+                created = False
+                
+                if not company:
+                    # If no company exists for this user, check if company exists for other users
+                    existing_company = Company.objects.filter(realm_id=realm_id).first()
                     
+                    if existing_company:
+                        # Company exists but user doesn't have access - add them as member
+                        company = existing_company
+                        created = False
+                        logger.info(f"User added to existing company: {company.id}")
+                    else:
+                        # Create new company
+                        company = Company.objects.create(
+                            realm_id=realm_id,
+                            name=f"Company-{realm_id}",
+                            created_by=request.user
+                        )
+                        created = True
+                        logger.info(f"Created new company: {company.id}")
+                        
         except Company.MultipleObjectsReturned:
             # Handle the case where there are multiple companies with same realm_id
             logger.warning(f"Multiple companies found for realm_id {realm_id}, using the first one")
@@ -345,9 +404,16 @@ class QuickBooksCallbackView(APIView):
         company.mark_connected(tokens)
         logger.info(f"Tokens saved for company {company.id}: access_token={'***' if company.access_token else 'None'}")
 
-        # Fetch and store company information from QuickBooks
-        self._fetch_and_store_company_info(company, tokens.get("access_token"))
-        self._fetch_and_store_company_preferences(company, tokens.get("access_token"))
+        # Test API access before making other calls
+        access_token = tokens.get("access_token")
+        api_access_ok = False
+
+        # Try to fetch company information (but don't fail the entire flow if this fails)
+        try:
+            self._fetch_and_store_company_info(company, access_token)
+            self._fetch_and_store_company_preferences(company, access_token)
+        except Exception as e:
+            logger.warning(f"Company info fetch failed, but continuing: {str(e)}")
 
         # Create or update membership
         membership, membership_created = CompanyMembership.objects.get_or_create(
@@ -355,22 +421,16 @@ class QuickBooksCallbackView(APIView):
             company=company,
             defaults={"is_default": True, "role": "admin"},
         )
+        logger.info(f"Membership {'created' if membership_created else 'updated'} for user {request.user.id}")
 
         # Set Active Company
         active_company, active_created = ActiveCompany.objects.update_or_create(
             user=request.user,
             defaults={"company": company}
         )
-
-        # Generate JWT tokens
-        refresh = RefreshToken.for_user(request.user)
-        jwt_tokens = {
-            "refresh": str(refresh),
-            "access": str(refresh.access_token)
-        }
+        logger.info(f"Active company {'created' if active_created else 'updated'} for user {request.user.id}")
 
         user_info = None
-        access_token = tokens.get("access_token")
         if access_token:
             try:
                 user_response = requests.get(
@@ -378,11 +438,26 @@ class QuickBooksCallbackView(APIView):
                     headers={"Authorization": f"Bearer {access_token}"},
                     timeout=30,
                 )
+                
+                logger.info(f"User info fetch response: {user_response.status_code}")
+
                 if user_response.status_code == 200:
                     user_info = user_response.json()
-            except requests.RequestException:
+                    logger.info("User info fetched successfully")
+                elif user_response.status_code == 403:
+                    logger.warning("User info access forbidden - check OpenID Connect permissions")
+                else:
+                    logger.warning(f"User info fetch returned {user_response.status_code}")
+            except requests.RequestException as e:
+                logger.error(f"Failed to fetch user info: {str(e)}")
                 user_info = {"error": "Failed to fetch user info"}
 
+        # ✅ ONLY NOW mark the state as used - after successful completion
+        oauth_state.mark_used()
+        print(f"✅ OAuth state marked as used and OAuth flow completed successfully")
+        logger.info(f"✅ OAuth state marked as used and OAuth flow completed successfully")
+
+        # Return success even if some API calls failed
         return Response({
             "success": True,
             "company": {
@@ -394,7 +469,7 @@ class QuickBooksCallbackView(APIView):
             "membership": {"is_default": membership.is_default, "role": membership.role},
             "active_company": str(company.id),
             "user": user_info,
-            "tokens": jwt_tokens
+            "api_access_ok": api_access_ok  # Let frontend know about API access status
         })
 
     def _fetch_and_store_company_preferences(self, company, access_token):
@@ -406,32 +481,36 @@ class QuickBooksCallbackView(APIView):
             return
 
         try:
-            # url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/preferences"
-            url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/preferences"
+            url = PREFERENCES_URL.format(realm_id=company.realm_id)
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Accept": "application/json"
             }
             response = requests.get(url, headers=headers, timeout=30)
-            response.raise_for_status()
-            data = response.json()
+            
+            logger.info(f"Preferences fetch response: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
 
-            print("company pref", data)
+                prefs = data.get("Preferences", {})
+                sales_prefs = prefs.get("SalesFormsPrefs", {})
+                template_ref = sales_prefs.get("DefaultInvoiceTemplateRef", {})
 
-            prefs = data.get("Preferences", {})
-            sales_prefs = prefs.get("SalesFormsPrefs", {})
-            template_ref = sales_prefs.get("DefaultInvoiceTemplateRef", {})
-
-            if template_ref:
-                company.invoice_template_id = template_ref.get("value")
-                company.invoice_template_name = template_ref.get("name")
-                company.save(update_fields=["invoice_template_id", "invoice_template_name"])
-                logger.info(
-                    f"Stored invoice template for {company.realm_id}: "
-                    f"{company.invoice_template_name} ({company.invoice_template_id})"
-                )
+                if template_ref:
+                    company.invoice_template_id = template_ref.get("value")
+                    company.invoice_template_name = template_ref.get("name")
+                    company.save(update_fields=["invoice_template_id", "invoice_template_name"])
+                    logger.info(
+                        f"Stored invoice template for {company.realm_id}: "
+                        f"{company.invoice_template_name} ({company.invoice_template_id})"
+                    )
+                else:
+                    logger.info(f"No DefaultInvoiceTemplateRef found for company {company.realm_id}")
+            elif response.status_code == 403:
+                logger.error(f"Access forbidden for company preferences - check app permissions")
             else:
-                logger.info(f"No DefaultInvoiceTemplateRef found for company {company.realm_id}")
+                logger.error(f"Failed to fetch preferences: {response.status_code}")
 
         except requests.RequestException as e:
             logger.error(f"Error fetching preferences from QuickBooks: {str(e)}")
@@ -445,26 +524,32 @@ class QuickBooksCallbackView(APIView):
             return
 
         try:
-            # company_info_list_url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/companyinfo/1"
-            company_info_list_url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/companyinfo/1"
-
+            company_info_url = COMPANY_INFO_URL.format(realm_id=company.realm_id)
+            
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Accept": "application/json"
             }
 
-            response = requests.get(company_info_list_url, headers=headers, timeout=30)
+            response = requests.get(company_info_url, headers=headers, timeout=30)
+
+            logger.info(f"Company info fetch response: {response.status_code}")
 
             if response.status_code == 200:
                 data = response.json()
-                company_info = data.get("QueryResponse", {}).get("CompanyInfo", [])
-
-                if company_info and len(company_info) > 0:
+                company_info = data.get("CompanyInfo")  # Direct access for companyinfo endpoint
+                
+                if company_info:
                     # Update company with QB info
-                    company.update_company_info(company_info[0])
+                    company.update_company_info(company_info)
                     logger.info(f"Company info updated for {company.realm_id}: {company.qb_company_name}")
                 else:
                     logger.warning(f"No company info found in QB response for realm {company.realm_id}")
+            elif response.status_code == 403:
+                logger.error(f"Access forbidden for company info - check app permissions and environment")
+                logger.error(f"Make sure your app is properly configured in Intuit Developer Portal")
+            elif response.status_code == 401:
+                logger.error(f"Unauthorized for company info - token may be invalid or expired")
             else:
                 logger.error(f"Failed to fetch company info: {response.status_code} - {response.text}")
 

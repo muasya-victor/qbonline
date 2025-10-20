@@ -5,11 +5,13 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
 from django.core.paginator import Paginator
-from django.db.models import Q
-from .models import Invoice
-from .serializers import InvoiceSerializer, CompanyInfoSerializer
+from django.db.models import Q, Prefetch
+from .models import Invoice, InvoiceLine
+from .serializers import InvoiceSerializer, CompanyInfoSerializer, InvoiceLineSerializer
 from .services import QuickBooksInvoiceService
 from companies.models import ActiveCompany
+from kra.models import KRAInvoiceSubmission
+from kra.services import KRAInvoiceService
 
 
 def get_active_company(user):
@@ -28,14 +30,23 @@ class InvoiceViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """Filter invoices by user's active company"""
+        """Filter invoices by user's active company with optimized prefetching"""
         active_company = get_active_company(self.request.user)
         if not active_company:
             return Invoice.objects.none()
 
+        # Prefetch KRA submissions to avoid N+1 queries
+        kra_submissions_prefetch = Prefetch(
+            'kra_submissions',
+            queryset=KRAInvoiceSubmission.objects.select_related('company').order_by('-created_at')
+        )
+
         queryset = Invoice.objects.filter(
             company=active_company
-        ).select_related('company').prefetch_related('line_items').order_by('-txn_date')
+        ).select_related('company').prefetch_related(
+            'line_items',
+            kra_submissions_prefetch
+        ).order_by('-txn_date')
 
         # Apply search filter
         search = self.request.query_params.get('search')
@@ -51,6 +62,20 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             queryset = queryset.filter(balance=0)
         elif status_filter == 'unpaid':
             queryset = queryset.filter(balance__gt=0)
+
+        # Apply KRA validation filter
+        kra_validated = self.request.query_params.get('kra_validated')
+        if kra_validated is not None:
+            if kra_validated.lower() == 'true':
+                # Invoices with at least one successful KRA submission
+                queryset = queryset.filter(
+                    kra_submissions__status__in=['success', 'signed']
+                ).distinct()
+            elif kra_validated.lower() == 'false':
+                # Invoices without successful KRA submissions
+                queryset = queryset.exclude(
+                    kra_submissions__status__in=['success', 'signed']
+                )
 
         return queryset
 
@@ -90,11 +115,134 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             'total_pages': paginator.num_pages
         }
 
+        # Add KRA submission stats
+        kra_stats = {
+            'total_submissions': KRAInvoiceSubmission.objects.filter(company=active_company).count(),
+            'successful_submissions': KRAInvoiceSubmission.objects.filter(
+                company=active_company, 
+                status__in=['success', 'signed']
+            ).count(),
+            'failed_submissions': KRAInvoiceSubmission.objects.filter(
+                company=active_company, 
+                status='failed'
+            ).count(),
+            'pending_submissions': KRAInvoiceSubmission.objects.filter(
+                company=active_company, 
+                status__in=['pending', 'submitted']
+            ).count()
+        }
+
         return Response({
             'success': True,
             'invoices': serializer.data,
             'pagination': pagination_info,
-            'company_info': company_serializer.data
+            'company_info': company_serializer.data,
+            'kra_stats': kra_stats
+        })
+
+    def retrieve(self, request, *args, **kwargs):
+        """Retrieve a single invoice with detailed information"""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        
+        # Get additional KRA submission details
+        kra_submissions = instance.kra_submissions.all().order_by('-created_at')
+        kra_serializer = KRASubmissionSerializer(kra_submissions, many=True)
+        
+        response_data = serializer.data
+        response_data['kra_submissions_detail'] = kra_serializer.data
+        response_data['kra_submissions_count'] = kra_submissions.count()
+        
+        return Response({
+            'success': True,
+            'invoice': response_data
+        })
+
+    @action(detail=True, methods=['get'])
+    def kra_submissions(self, request, pk=None):
+        """Get all KRA submissions for a specific invoice"""
+        invoice = self.get_object()
+        submissions = invoice.kra_submissions.all().order_by('-created_at')
+        
+        serializer = KRASubmissionSerializer(submissions, many=True)
+        
+        return Response({
+            'success': True,
+            'invoice_id': str(invoice.id),
+            'invoice_number': invoice.doc_number,
+            'customer_name': invoice.customer_name,
+            'kra_submissions': serializer.data,
+            'total_submissions': submissions.count(),
+            'latest_submission': KRASubmissionSerializer(submissions.first()).data if submissions.exists() else None
+        })
+
+    @action(detail=True, methods=['post'])
+    def submit_to_kra(self, request, pk=None):
+        """Submit a specific invoice to KRA"""
+        try:
+            invoice = self.get_object()
+            company = invoice.company
+            
+            # Verify user has access to this company
+            if not request.user.company_memberships.filter(company=company).exists():
+                return Response({
+                    'success': False,
+                    'error': 'You do not have access to this company'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            # Check if KRA config exists
+            if not hasattr(company, 'kra_config'):
+                return Response({
+                    'success': False,
+                    'error': 'KRA configuration not found for this company'
+                }, status=status.HTTP_400_BADDEN_REQUEST)
+            
+            # Submit to KRA
+            kra_service = KRAInvoiceService(company.id)
+            result = kra_service.submit_to_kra(invoice.id)
+            
+            if result['success']:
+                submission = result['submission']
+                response_data = {
+                    'success': True,
+                    'message': 'Invoice successfully submitted to KRA',
+                    'submission_id': str(submission.id),
+                    'kra_invoice_number': submission.kra_invoice_number,
+                    'receipt_signature': submission.receipt_signature,
+                    'qr_code_data': submission.qr_code_data,
+                    'status': submission.status,
+                    'kra_response': result.get('kra_response', {})
+                }
+                return Response(response_data, status=status.HTTP_200_OK)
+            else:
+                return Response({
+                    'success': False, 
+                    'error': result['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'success': False, 
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['get'])
+    def line_items(self, request, pk=None):
+        """Get all line items for a specific invoice"""
+        invoice = self.get_object()
+        line_items = invoice.line_items.all().order_by('line_num')
+        
+        serializer = InvoiceLineSerializer(line_items, many=True)
+        
+        return Response({
+            'success': True,
+            'invoice_id': str(invoice.id),
+            'invoice_number': invoice.doc_number,
+            'line_items': serializer.data,
+            'total_line_items': line_items.count(),
+            'total_amount': float(invoice.total_amt),
+            'subtotal': float(invoice.subtotal),
+            'tax_total': float(invoice.tax_total)
         })
 
     @action(detail=False, methods=['post'])
@@ -137,3 +285,91 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 'error': f'Sync failed: {str(e)}',
                 'message': 'An error occurred during sync'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get invoice statistics for the active company"""
+        active_company = get_active_company(request.user)
+        if not active_company:
+            return Response({
+                'success': False,
+                'error': 'No active company selected'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Invoice statistics
+        total_invoices = Invoice.objects.filter(company=active_company).count()
+        paid_invoices = Invoice.objects.filter(company=active_company, balance=0).count()
+        unpaid_invoices = Invoice.objects.filter(company=active_company, balance__gt=0).count()
+        
+        # Amount statistics
+        total_amount = Invoice.objects.filter(company=active_company).aggregate(
+            total=Sum('total_amt')
+        )['total'] or 0
+        outstanding_balance = Invoice.objects.filter(company=active_company).aggregate(
+            total=Sum('balance')
+        )['total'] or 0
+        
+        # KRA statistics
+        kra_validated_invoices = Invoice.objects.filter(
+            company=active_company,
+            kra_submissions__status__in=['success', 'signed']
+        ).distinct().count()
+
+        return Response({
+            'success': True,
+            'stats': {
+                'total_invoices': total_invoices,
+                'paid_invoices': paid_invoices,
+                'unpaid_invoices': unpaid_invoices,
+                'total_amount': float(total_amount),
+                'outstanding_balance': float(outstanding_balance),
+                'kra_validated_invoices': kra_validated_invoices,
+                'validation_rate': round((kra_validated_invoices / total_invoices * 100), 2) if total_invoices > 0 else 0
+            },
+            'company': active_company.name
+        })
+
+    @action(detail=False, methods=['get'])
+    def recent(self, request):
+        """Get recent invoices (last 10)"""
+        active_company = get_active_company(request.user)
+        if not active_company:
+            return Response({
+                'success': False,
+                'error': 'No active company selected'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        recent_invoices = Invoice.objects.filter(
+            company=active_company
+        ).select_related('company').prefetch_related(
+            Prefetch('kra_submissions', queryset=KRAInvoiceSubmission.objects.order_by('-created_at'))
+        ).order_by('-created_at')[:10]
+
+        serializer = self.get_serializer(recent_invoices, many=True)
+
+        return Response({
+            'success': True,
+            'invoices': serializer.data,
+            'total_count': recent_invoices.count()
+        })
+
+    def create(self, request, *args, **kwargs):
+        """Create is not allowed via API - invoices come from QuickBooks"""
+        return Response({
+            'success': False,
+            'error': 'Invoices can only be created via QuickBooks sync'
+        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def update(self, request, *args, **kwargs):
+        """Update is not allowed via API - invoices come from QuickBooks"""
+        return Response({
+            'success': False,
+            'error': 'Invoices can only be updated via QuickBooks sync'
+        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def destroy(self, request, *args, **kwargs):
+        """Delete is not allowed via API - invoices come from QuickBooks"""
+        return Response({
+            'success': False,
+            'error': 'Invoices can only be deleted via QuickBooks sync'
+        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)

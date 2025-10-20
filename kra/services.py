@@ -31,24 +31,62 @@ class KRAInvoiceService:
     def map_tax_category(self, tax_code_ref, tax_rate):
         """
         Map QuickBooks tax codes to KRA tax categories
-        This needs to be customized based on your tax configuration
+        Enhanced to handle various tax code formats
         """
-        tax_code_ref = (tax_code_ref or "").upper()
+        tax_code_ref = str(tax_code_ref or "").upper()
         
-        # Default mapping - adjust based on your requirements
-        if tax_code_ref in ['EXEMPT', 'EXEMPTED']:
-            return 'A'  # Exempted (0%)
-        elif tax_rate == Decimal('0.16'):  # 16% VAT
-            return 'B'
-        elif tax_rate == Decimal('0.08'):  # 8% Other rate
-            return 'E'
-        elif tax_rate == Decimal('0.00'):
-            return 'C'  # Zero-rated
+        # Convert tax_rate to Decimal if it's not already
+        if tax_rate is not None:
+            try:
+                tax_rate = Decimal(str(tax_rate))
+            except (ValueError, TypeError):
+                tax_rate = Decimal('0.00')
         else:
-            return 'D'  # Non-VAT
+            tax_rate = Decimal('0.00')
+        
+        # Map common QuickBooks tax codes to KRA categories
+        tax_code_mapping = {
+            # VAT 16%
+            '13': 'B',  # Assuming "13" is 16% VAT in your QB
+            'TAX': 'B',
+            'VAT': 'B',
+            '16': 'B',
+            '16%': 'B',
+            
+            # VAT 8%
+            '8': 'E',   # Assuming "8" is 8% VAT
+            'VAT8': 'E',
+            '8%': 'E',
+            
+            # Zero-rated
+            '0': 'C',
+            'ZERO': 'C',
+            'NON': 'C',
+            'NONE': 'C',
+            'ZERO-RATED': 'C',
+            
+            # Exempt
+            'EXEMPT': 'A',
+            'EXEMPTED': 'A',
+            'EXEMPTION': 'A',
+        }
+        
+        # First try to map by tax code
+        if tax_code_ref in tax_code_mapping:
+            return tax_code_mapping[tax_code_ref]
+        
+        # Fall back to tax rate mapping
+        if tax_rate == Decimal('16') or tax_rate == Decimal('16.00'):
+            return 'B'
+        elif tax_rate == Decimal('8') or tax_rate == Decimal('8.00'):
+            return 'E'
+        elif tax_rate == Decimal('0') or tax_rate == Decimal('0.00'):
+            return 'C'
+        else:
+            return 'D'  # Non-VAT or unknown
     
     def calculate_tax_summary(self, line_items):
-        """Calculate tax summary for categories A-E"""
+        """Calculate tax summary for categories A-E with corrected logic"""
         tax_summary = {
             'A': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
@@ -59,17 +97,24 @@ class KRAInvoiceService:
         
         for item in line_items:
             tax_category = self.map_tax_category(item.tax_code_ref, item.tax_rate)
-            taxable_amount = item.amount - item.tax_amount
+            
+            # FIXED: Use the actual taxable amount from the line item
+            # In QuickBooks, line item amount is typically the taxable amount before tax
+            taxable_amount = item.amount  # This should be the taxable amount
             
             tax_summary[tax_category]['taxable_amount'] += taxable_amount
             
-            # Calculate tax amount based on category rate
-            if tax_category == 'B':  # 16%
-                tax_amount = taxable_amount * Decimal('0.16')
-            elif tax_category == 'E':  # 8%
-                tax_amount = taxable_amount * Decimal('0.08')
+            # Use the actual tax_amount from the line item if available
+            if item.tax_amount and item.tax_amount > 0:
+                tax_amount = item.tax_amount
             else:
-                tax_amount = Decimal('0.00')
+                # Calculate tax amount based on category rate - FIXED percentages
+                if tax_category == 'B':  # 16%
+                    tax_amount = taxable_amount * Decimal('0.16')  # Use 0.16 for 16%
+                elif tax_category == 'E':  # 8%
+                    tax_amount = taxable_amount * Decimal('0.08')   # Use 0.08 for 8%
+                else:
+                    tax_amount = Decimal('0.00')
             
             tax_summary[tax_category]['tax_amount'] += tax_amount
         
@@ -95,6 +140,9 @@ class KRAInvoiceService:
         for idx, line_item in enumerate(invoice.line_items.all(), 1):
             tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_rate)
             
+            # Calculate taxable amount correctly
+            taxable_amount = line_item.amount  # Use amount as taxable base
+            
             item_data = {
                 "itemSeq": idx,
                 "itemCd": line_item.item_ref_value or f"ITEM{idx:05d}",
@@ -114,11 +162,29 @@ class KRAInvoiceService:
                 "isrcRt": None,
                 "isrcAmt": None,
                 "taxTyCd": tax_category,
-                "taxblAmt": float(line_item.amount - line_item.tax_amount),
+                "taxblAmt": float(taxable_amount),  # Use calculated taxable amount
                 "taxAmt": float(line_item.tax_amount),
                 "totAmt": float(line_item.amount)
             }
             item_list.append(item_data)
+        
+        # Calculate total taxable amount from summary
+        total_taxable_amount = sum([
+            tax_summary['A']['taxable_amount'],
+            tax_summary['B']['taxable_amount'], 
+            tax_summary['C']['taxable_amount'],
+            tax_summary['D']['taxable_amount'],
+            tax_summary['E']['taxable_amount']
+        ])
+        
+        # Calculate total tax amount from summary
+        total_tax_amount = sum([
+            tax_summary['A']['tax_amount'],
+            tax_summary['B']['tax_amount'],
+            tax_summary['C']['tax_amount'],
+            tax_summary['D']['tax_amount'],
+            tax_summary['E']['tax_amount']
+        ])
         
         # Build main payload
         payload = {
@@ -156,8 +222,8 @@ class KRAInvoiceService:
             "taxAmtC": float(tax_summary['C']['tax_amount']),
             "taxAmtD": float(tax_summary['D']['tax_amount']),
             "taxAmtE": float(tax_summary['E']['tax_amount']),
-            "totTaxblAmt": float(invoice.subtotal),
-            "totTaxAmt": float(invoice.tax_total),
+            "totTaxblAmt": float(total_taxable_amount),  # Use calculated total taxable
+            "totTaxAmt": float(total_tax_amount),        # Use calculated total tax
             "totAmt": float(invoice.total_amt),
             "prchrAcptcYn": "Y",
             "remark": invoice.private_note,

@@ -35,7 +35,7 @@ ALLOWED_HOSTS = ["localhost", "127.0.0.1", "212.47.77.18"]
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_AGE = 600  # 10 minutes for OAuth
+SESSION_COOKIE_AGE = 1209600  
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 CSRF_COOKIE_SAMESITE = 'Lax'
 CSRF_COOKIE_SECURE = False 
@@ -125,6 +125,9 @@ DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 60, 
+        }
     }
 }
 
