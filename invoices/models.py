@@ -25,6 +25,8 @@ class Invoice(TimeStampModel):
     balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+
+    is_kra_validated = models.BooleanField(default=False)
     
     # Status and metadata
     private_note = models.TextField(blank=True, null=True)

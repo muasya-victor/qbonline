@@ -11,8 +11,8 @@ from companies.models import Company
 class QuickBooksCustomerService:
     """Service to manage customer operations with QuickBooks API"""
 
-    BASE_URL = "https://sandbox-quickbooks.api.intuit.com"
-    # BASE_URL = "https://quickbooks.api.intuit.com"
+    # BASE_URL = "https://sandbox-quickbooks.api.intuit.com"
+    BASE_URL = "https://quickbooks.api.intuit.com"
 
     def __init__(self, company: Company):
         self.company = company

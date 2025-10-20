@@ -27,7 +27,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'qb_invoice_id', 'doc_number', 'txn_date', 'due_date',
             'customer_name', 'total_amt', 'balance', 'subtotal', 'tax_total',
-            'private_note', 'customer_memo', 'currency_code', 'status', 'line_items'
+            'private_note', 'customer_memo', 'currency_code', 'status', 'line_items','is_kra_validated'
         ]
 
     def get_status(self, obj):

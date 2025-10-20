@@ -26,10 +26,10 @@ User = get_user_model()
 # Endpoints
 AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
-# USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
-COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
-# COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
+# USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
+USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
+# COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
+COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{company_id}"
 
 
 class UserRegistrationView(APIView):
@@ -104,7 +104,7 @@ class UserRegistrationView(APIView):
             )
 
 
-class QuickBooksAuthURLView(APIView):
+class QuickBooksAuthURLView(APIView): # login view
     """
     Generate QuickBooks OAuth URL after user authentication
     """
@@ -239,7 +239,6 @@ class QuickBooksCallbackView(APIView):
         print(data, 'data')
         
         auth_code = data.get("code")
-
         realm_id = data.get("realmId")
         returned_state = data.get("state")
 
@@ -309,11 +308,38 @@ class QuickBooksCallbackView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-        # Authenticated user context
-        company, created = Company.objects.get_or_create(
-            realm_id=realm_id,
-            defaults={"name": f"Company-{realm_id}", "created_by": request.user},
-        )
+        # FIX: Handle duplicate companies properly
+        try:
+            # First, try to get existing company for this user with this realm_id
+            company = Company.objects.filter(
+                realm_id=realm_id,
+                memberships__user=request.user
+            ).first()
+            
+            created = False
+            
+            if not company:
+                # If no company exists for this user, check if company exists for other users
+                existing_company = Company.objects.filter(realm_id=realm_id).first()
+                
+                if existing_company:
+                    # Company exists but user doesn't have access - add them as member
+                    company = existing_company
+                    created = False
+                else:
+                    # Create new company
+                    company = Company.objects.create(
+                        realm_id=realm_id,
+                        name=f"Company-{realm_id}",
+                        created_by=request.user
+                    )
+                    created = True
+                    
+        except Company.MultipleObjectsReturned:
+            # Handle the case where there are multiple companies with same realm_id
+            logger.warning(f"Multiple companies found for realm_id {realm_id}, using the first one")
+            company = Company.objects.filter(realm_id=realm_id).first()
+            created = False
         
         # Save QuickBooks tokens
         company.mark_connected(tokens)
@@ -323,15 +349,15 @@ class QuickBooksCallbackView(APIView):
         self._fetch_and_store_company_info(company, tokens.get("access_token"))
         self._fetch_and_store_company_preferences(company, tokens.get("access_token"))
 
-
-        membership, _ = CompanyMembership.objects.get_or_create(
+        # Create or update membership
+        membership, membership_created = CompanyMembership.objects.get_or_create(
             user=request.user,
             company=company,
             defaults={"is_default": True, "role": "admin"},
         )
 
         # Set Active Company
-        ActiveCompany.objects.update_or_create(
+        active_company, active_created = ActiveCompany.objects.update_or_create(
             user=request.user,
             defaults={"company": company}
         )
@@ -380,7 +406,8 @@ class QuickBooksCallbackView(APIView):
             return
 
         try:
-            url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/preferences"
+            # url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/preferences"
+            url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/preferences"
             headers = {
                 "Authorization": f"Bearer {access_token}",
                 "Accept": "application/json"
@@ -409,7 +436,6 @@ class QuickBooksCallbackView(APIView):
         except requests.RequestException as e:
             logger.error(f"Error fetching preferences from QuickBooks: {str(e)}")
 
-
     def _fetch_and_store_company_info(self, company, access_token):
         """
         Fetch company information from QuickBooks API and store it
@@ -419,8 +445,8 @@ class QuickBooksCallbackView(APIView):
             return
 
         try:
-            # First, get the company info ID (usually "1" for the main company)
-            company_info_list_url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/companyinfo/1"
+            # company_info_list_url = f"https://sandbox-quickbooks.api.intuit.com/v3/company/{company.realm_id}/companyinfo/1"
+            company_info_list_url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/companyinfo/1"
 
             headers = {
                 "Authorization": f"Bearer {access_token}",

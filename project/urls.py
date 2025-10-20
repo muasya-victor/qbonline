@@ -8,4 +8,6 @@ urlpatterns = [
     path('api/', include('invoices.urls')),
     path('api/', include('creditnote.urls')),
     path('api/', include('customers.urls')),
+    path('api/', include('companies.urls')),
+    path('api/kra/', include('kra.urls')),
 ]

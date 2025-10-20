@@ -144,8 +144,8 @@ class QuickBooksInvoiceService:
 class QuickBooksCreditNoteService:
     """Service to fetch and sync credit notes (Credit Memos) from QuickBooks"""
 
-    BASE_URL = "https://sandbox-quickbooks.api.intuit.com"
-    # BASE_URL = "https://quickbooks.api.intuit.com"
+    # BASE_URL = "https://sandbox-quickbooks.api.intuit.com"
+    BASE_URL = "https://quickbooks.api.intuit.com"
 
     def __init__(self, company: Company):
         self.company = company
