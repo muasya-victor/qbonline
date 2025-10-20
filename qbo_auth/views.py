@@ -20,6 +20,8 @@ import json
 from rest_framework.views import APIView
 from typing import Dict
 from django.db import IntegrityError
+import requests
+from urllib.parse import quote
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -27,14 +29,38 @@ User = get_user_model()
 # Endpoints - SANDBOX ENVIRONMENT (use all sandbox URLs)
 AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-# USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
-# COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
-# PREFERENCES_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
 
-# PRODUCTION URLs (comment out when using sandbox)
-USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
-COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
-PREFERENCES_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
+# Load environment variables
+QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
+
+# Sandbox URLs
+SANDBOX_USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
+SANDBOX_COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
+SANDBOX_PREFERENCES_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
+
+# Production URLs
+PRODUCTION_USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
+PRODUCTION_COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
+PRODUCTION_PREFERENCES_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
+
+# Environment-specific selection
+if QBO_ENVIRONMENT == "production":
+    USERINFO_URL = PRODUCTION_USERINFO_URL
+    COMPANY_INFO_URL = PRODUCTION_COMPANY_INFO_URL
+    PREFERENCES_URL = PRODUCTION_PREFERENCES_URL
+    QBO_CLIENT_ID = os.getenv("PROD_QBO_CLIENT_ID")
+    QBO_CLIENT_SECRET = os.getenv("PROD_QBO_CLIENT_SECRET")
+    QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qbo-ui.netlify.app/qbo/callback")
+    QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qbo-ui.netlify.app/qbo/callback")
+else:
+    USERINFO_URL = SANDBOX_USERINFO_URL
+    COMPANY_INFO_URL = SANDBOX_COMPANY_INFO_URL
+    PREFERENCES_URL = SANDBOX_PREFERENCES_URL
+    QBO_CLIENT_ID = os.getenv("DEV_QBO_CLIENT_ID")
+    QBO_CLIENT_SECRET = os.getenv("DEV_QBO_CLIENT_SECRET")
+    QBO_REDIRECT_URI = os.getenv("DEV_QBO_REDIRECT_URI", "http://localhost:3000/qbo/callback/")
+    QBO_REDIRECT_URI_FRONTEND = os.getenv("DEV_QBO_REDIRECT_URI_FRONTEND", "http://localhost:3000/qbo/callback/")
+
 
 
 class UserRegistrationView(APIView):
@@ -175,8 +201,8 @@ class QuickBooksAuthURLView(APIView):
         """
         Generate QuickBooks OAuth URL with state parameter
         """
-        client_id = os.environ.get("QBO_CLIENT_ID")
-        redirect_uri = os.environ.get("QBO_REDIRECT_URI_FRONTEND")
+        client_id = QBO_CLIENT_ID
+        redirect_uri = QBO_REDIRECT_URI_FRONTEND
 
         if not client_id or not redirect_uri:
             logger.error("QuickBooks config missing: QBO_CLIENT_ID or QBO_REDIRECT_URI_FRONTEND not set.")
@@ -302,9 +328,9 @@ class QuickBooksCallbackView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        client_id = os.environ.get("QBO_CLIENT_ID")
-        client_secret = os.environ.get("QBO_CLIENT_SECRET")
-        redirect_uri = os.environ.get("QBO_REDIRECT_URI_FRONTEND")
+        client_id = QBO_CLIENT_ID
+        client_secret = QBO_CLIENT_SECRET
+        redirect_uri = QBO_REDIRECT_URI_FRONTEND
 
         # DEBUG: Log OAuth configuration (mask secrets)
         print(f"🔧 OAuth config - Client ID: {client_id[:10]}..., Redirect URI: {redirect_uri}")
@@ -465,6 +491,36 @@ class QuickBooksCallbackView(APIView):
                 "name": company.name,
                 "realm_id": company.realm_id,
                 "is_connected": company.is_connected,
+                
+                # Basic company info
+                "qb_company_name": company.qb_company_name,
+                "qb_legal_name": company.qb_legal_name,
+                "country": company.qb_country,
+                "email": company.qb_email,
+                "phone": company.qb_phone,
+                "website": company.qb_website,
+                "address": company.qb_address,
+                
+                # Currency and financial settings
+                "currency_code": company.currency_code,
+                "tax_enabled": company.tax_enabled,
+                "tax_calculation": company.tax_calculation,
+                
+                # Invoice and branding
+                "invoice_template_id": company.invoice_template_id,
+                "invoice_template_name": company.invoice_template_name,
+                "invoice_logo_enabled": company.invoice_logo_enabled,
+                "brand_color": company.brand_color,
+                "logo_url": company.logo_url,
+                
+                # Features
+                "multi_currency_enabled": company.multi_currency_enabled,
+                "time_tracking_enabled": company.time_tracking_enabled,
+                
+                # Additional metadata
+                "fiscal_year_start": company.qb_fiscal_year_start,
+                "supported_languages": company.qb_supported_languages,
+                "company_type": company.company_type,
             },
             "membership": {"is_default": membership.is_default, "role": membership.role},
             "active_company": str(company.id),
@@ -472,52 +528,9 @@ class QuickBooksCallbackView(APIView):
             "api_access_ok": api_access_ok  # Let frontend know about API access status
         })
 
-    def _fetch_and_store_company_preferences(self, company, access_token):
-        """
-        Fetch QuickBooks preferences to get default invoice template name and ID
-        """
-        if not access_token or not company.realm_id:
-            logger.warning("Missing access_token or realm_id for company preferences fetch")
-            return
-
-        try:
-            url = PREFERENCES_URL.format(realm_id=company.realm_id)
-            headers = {
-                "Authorization": f"Bearer {access_token}",
-                "Accept": "application/json"
-            }
-            response = requests.get(url, headers=headers, timeout=30)
-            
-            logger.info(f"Preferences fetch response: {response.status_code}")
-            
-            if response.status_code == 200:
-                data = response.json()
-
-                prefs = data.get("Preferences", {})
-                sales_prefs = prefs.get("SalesFormsPrefs", {})
-                template_ref = sales_prefs.get("DefaultInvoiceTemplateRef", {})
-
-                if template_ref:
-                    company.invoice_template_id = template_ref.get("value")
-                    company.invoice_template_name = template_ref.get("name")
-                    company.save(update_fields=["invoice_template_id", "invoice_template_name"])
-                    logger.info(
-                        f"Stored invoice template for {company.realm_id}: "
-                        f"{company.invoice_template_name} ({company.invoice_template_id})"
-                    )
-                else:
-                    logger.info(f"No DefaultInvoiceTemplateRef found for company {company.realm_id}")
-            elif response.status_code == 403:
-                logger.error(f"Access forbidden for company preferences - check app permissions")
-            else:
-                logger.error(f"Failed to fetch preferences: {response.status_code}")
-
-        except requests.RequestException as e:
-            logger.error(f"Error fetching preferences from QuickBooks: {str(e)}")
-
     def _fetch_and_store_company_info(self, company, access_token):
         """
-        Fetch company information from QuickBooks API and store it
+        Fetch basic company information from QuickBooks CompanyInfo API
         """
         if not access_token or not company.realm_id:
             logger.warning("Missing access_token or realm_id for company info fetch")
@@ -537,17 +550,16 @@ class QuickBooksCallbackView(APIView):
 
             if response.status_code == 200:
                 data = response.json()
-                company_info = data.get("CompanyInfo")  # Direct access for companyinfo endpoint
+                company_info = data.get("CompanyInfo")
                 
                 if company_info:
-                    # Update company with QB info
-                    company.update_company_info(company_info)
-                    logger.info(f"Company info updated for {company.realm_id}: {company.qb_company_name}")
+                    # Update company with basic QB info (no logo here)
+                    self._update_company_basic_info(company, company_info)
+                    logger.info(f"Company basic info updated for {company.realm_id}: {company.qb_company_name}")
                 else:
                     logger.warning(f"No company info found in QB response for realm {company.realm_id}")
             elif response.status_code == 403:
                 logger.error(f"Access forbidden for company info - check app permissions and environment")
-                logger.error(f"Make sure your app is properly configured in Intuit Developer Portal")
             elif response.status_code == 401:
                 logger.error(f"Unauthorized for company info - token may be invalid or expired")
             else:
@@ -558,6 +570,318 @@ class QuickBooksCallbackView(APIView):
         except Exception as e:
             logger.error(f"Unexpected error processing company info: {str(e)}")
 
+    def _update_company_basic_info(self, company, company_info: dict):
+        """
+        Update company with basic information from QuickBooks CompanyInfo API response,
+        including logo if available.
+        """
+        if not company_info:
+            return
+
+        # Extract data from QB response
+        company.qb_company_info = company_info
+        company.qb_company_name = company_info.get("CompanyName")
+        company.qb_legal_name = company_info.get("LegalName")
+        company.qb_country = company_info.get("Country")
+        company.qb_fiscal_year_start = company_info.get("FiscalYearStartMonth")
+        company.qb_supported_languages = company_info.get("SupportedLanguages")
+        company.qb_name_value = company_info.get("Name")
+        company.company_type = company_info.get("CompanyType")
+
+        # Handle start date
+        company_start_date = company_info.get("CompanyStartDate")
+        if company_start_date:
+            from datetime import datetime
+            try:
+                if isinstance(company_start_date, str):
+                    company.company_start_date = datetime.strptime(company_start_date, '%Y-%m-%d').date()
+                else:
+                    company.company_start_date = company_start_date
+            except (ValueError, TypeError):
+                logger.warning(f"Could not parse company start date: {company_start_date}")
+
+        company.ein = company_info.get("EIN")
+
+        # Address info
+        company.qb_address = company_info.get("CompanyAddr")
+        company.customer_communication_addr = company_info.get("CustomerCommunicationAddr")
+        company.legal_addr = company_info.get("LegalAddr")
+
+        # Contact info
+        email = company_info.get("Email")
+        if email and email.get("Address"):
+            company.qb_email = email["Address"]
+
+        phone = company_info.get("PrimaryPhone")
+        if phone and phone.get("FreeFormNumber"):
+            company.qb_phone = phone["FreeFormNumber"]
+
+        website = company_info.get("WebAddr")
+        if website and website.get("URI"):
+            company.qb_website = website["URI"]
+
+        # ✅ New: Fetch logo directly from CompanyLogoRef (supported and reliable)
+        logo_ref = company_info.get("CompanyLogoRef")
+        if logo_ref and logo_ref.get("Value"):
+            company.logo_url = logo_ref["Value"]
+            logger.info(f"✅ Company logo found in CompanyInfo: {company.logo_url}")
+
+        # Use QB company name if name is default
+        if company.qb_company_name and company.name == "default":
+            company.name = company.qb_company_name
+
+        company.save(update_fields=[
+            "name", "qb_company_name", "qb_legal_name", "qb_country", "qb_address",
+            "qb_phone", "qb_email", "qb_website", "qb_fiscal_year_start", 
+            "qb_supported_languages", "qb_name_value", "qb_company_info", 
+            "company_type", "company_start_date", "ein", "customer_communication_addr", 
+            "legal_addr", "logo_url"
+        ])
+
+    def _fetch_and_store_company_preferences(self, company, access_token):
+        """
+        Fetch comprehensive QuickBooks preferences including logo, currency, and invoice settings
+        """
+        if not access_token or not company.realm_id:
+            logger.warning("Missing access_token or realm_id for company preferences fetch")
+            return
+
+        try:
+            url = PREFERENCES_URL.format(realm_id=company.realm_id)
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json"
+            }
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            logger.info(f"Preferences fetch response: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                preferences = data.get("Preferences", {})
+                
+                # Store complete preferences for reference
+                company.preferences_data = preferences
+                
+                # Extract and store logo URL from SalesFormsPrefs
+                self._extract_and_store_logo_url(company, preferences)
+                
+                # Currency preferences
+                currency_prefs = preferences.get("CurrencyPrefs", {})
+                if currency_prefs:
+                    home_currency = currency_prefs.get("HomeCurrency", {})
+                    company.currency_code = home_currency.get("value", "USD")
+                    company.multi_currency_enabled = currency_prefs.get("MultiCurrencyEnabled", False)
+                    logger.info(f"Set company currency: {company.currency_code}, Multi-currency: {company.multi_currency_enabled}")
+                
+                # Sales form preferences (invoices, estimates, etc.)
+                sales_prefs = preferences.get("SalesFormsPrefs", {})
+                if sales_prefs:
+                    # Invoice template
+                    template_ref = sales_prefs.get("DefaultInvoiceTemplateRef", {})
+                    if template_ref:
+                        company.invoice_template_id = template_ref.get("value")
+                        company.invoice_template_name = template_ref.get("name")
+                    
+                    # Invoice customization
+                    company.invoice_logo_enabled = sales_prefs.get("AllowInvoiceLogo", True)
+                    company.brand_color = sales_prefs.get("BrandingColor", "#0077C5")
+                    
+                    # Invoice numbering and terms
+                    company.auto_invoice_number = sales_prefs.get("AutoInvoiceNumber", False)
+                    
+                    default_terms = sales_prefs.get("DefaultTerms")
+                    if default_terms:
+                        company.default_payment_terms = default_terms.get("value")
+                    
+                    # Shipping and delivery
+                    company.default_delivery_method = sales_prefs.get("DefaultDeliveryMethod")
+                    company.default_ship_method = sales_prefs.get("DefaultShipMethod")
+
+                # Tax preferences
+                tax_prefs = preferences.get("TaxPrefs", {})
+                if tax_prefs:
+                    company.tax_enabled = tax_prefs.get("UsingSalesTax", False)
+                    company.tax_calculation = tax_prefs.get("TaxGroupCodePref", "TaxExcluded")
+
+                # Other important preferences
+                other_prefs = preferences.get("OtherPrefs", {})
+                if other_prefs:
+                    # Feature flags
+                    company.time_tracking_enabled = other_prefs.get("TimeTrackingEnabled", False)
+                    company.inventory_enabled = other_prefs.get("InventoryEnabled", False)
+                    company.class_tracking_enabled = other_prefs.get("ClassTrackingPerTxn", False)
+                    company.department_tracking_enabled = other_prefs.get("DepartmentTracking", False)
+                    
+                    # Customer/Vendor tracking
+                    company.customer_tracking_enabled = other_prefs.get("CustomerTracking", True)
+                    company.vendor_tracking_enabled = other_prefs.get("VendorTracking", True)
+
+                # Email preferences
+                email_prefs = preferences.get("EmailMessagesPrefs", {})
+                if email_prefs:
+                    company.email_when_sent = email_prefs.get("InvoiceEmailWhenSent", False)
+                    company.email_when_opened = email_prefs.get("InvoiceEmailWhenOpened", False)
+                    company.email_when_paid = email_prefs.get("InvoiceEmailWhenPaid", False)
+
+                # Save all preference-related fields
+                update_fields = [
+                    "preferences_data", "currency_code", "multi_currency_enabled",
+                    "invoice_template_id", "invoice_template_name", "invoice_logo_enabled", 
+                    "brand_color", "auto_invoice_number", "default_payment_terms", 
+                    "tax_enabled", "tax_calculation", "time_tracking_enabled", 
+                    "inventory_enabled", "class_tracking_enabled", "department_tracking_enabled",
+                    "customer_tracking_enabled", "vendor_tracking_enabled", 
+                    "default_delivery_method", "default_ship_method", "email_when_sent", 
+                    "email_when_opened", "email_when_paid"
+                ]
+
+                # Add logo_url to update fields if it was set
+                if hasattr(company, '_logo_url_updated') and company._logo_url_updated:
+                    update_fields.append("logo_url")
+                    delattr(company, '_logo_url_updated')
+
+                company.save(update_fields=update_fields)
+                
+                logger.info(f"Stored comprehensive preferences for company {company.realm_id}")
+                
+            elif response.status_code == 403:
+                logger.error(f"Access forbidden for company preferences - check app permissions")
+            else:
+                logger.error(f"Failed to fetch preferences: {response.status_code}")
+
+        except requests.RequestException as e:
+            logger.error(f"Error fetching preferences from QuickBooks: {str(e)}")
+    
+
+
+    def _extract_and_store_logo_url(self, company, preferences: dict):
+        """
+        Attempts to fetch the company logo from three QuickBooks API sources in order:
+        1. Preferences (Direct link, least common)
+        2. CustomFormStyle (Preferred link, fails with 'Unsupported Operation' on some plans)
+        3. Attachments API (Fallback, requires file download and local storage/S3)
+        """
+        if not preferences or not company.realm_id or not company.access_token:
+            logger.warning("⚠️ Missing data for logo extraction (access_token, realm_id, or preferences).")
+            return
+
+        access_token = company.access_token
+        
+        # ------------------------------------------------------------------------
+        # 1. ATTEMPT: Preferences (Checking for direct logo reference inside the Preferences JSON)
+        # ------------------------------------------------------------------------
+        try:
+            sales_prefs = preferences.get("SalesFormsPrefs", {})
+            custom_styles = sales_prefs.get("CustomFormStyles", [])
+            for style in custom_styles:
+                logo_ref = style.get("LogoRef", {})
+                if logo_ref and logo_ref.get("Value"):
+                    company.logo_url = logo_ref["Value"]
+                    company._logo_url_updated = True
+                    logger.info(f"✅ Found logo in preferences: {company.logo_url}")
+                    return
+        except Exception as e:
+            logger.debug(f"Error reading logo from preferences: {str(e)}")
+
+        # ------------------------------------------------------------------------
+        # 2. ATTEMPT: CustomFormStyle API (The one that often returns 400/Unsupported)
+        # ------------------------------------------------------------------------
+        try:
+            logger.info("🔍 Fetching CustomFormStyle API...")
+            
+            # Use a QBO query URL format for better compatibility
+            styles_query = "SELECT * FROM CustomFormStyle"
+            styles_url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/query?query={quote(styles_query)}"
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/json"
+            }
+
+            response = requests.get(styles_url, headers=headers, timeout=30)
+            logger.info(f"CustomFormStyle response status: {response.status_code}")
+
+            if response.status_code == 200:
+                data = response.json()
+                styles = data.get("QueryResponse", {}).get("CustomFormStyle", [])
+                
+                for style in styles:
+                    # The structure for logo here is often complex, checking for ImageName or URI
+                    logo_ref = style.get("CustomStyle", {}).get("Image", {}).get("ImageName")
+                    if logo_ref:
+                        company.logo_url = logo_ref
+                        company._logo_url_updated = True
+                        # NOTE: This value might be a reference ID, not a URL.
+                        logger.info(f"✅ Found logo in CustomFormStyle (Reference): {company.logo_url}")
+                        return
+
+            elif response.status_code == 400:
+                # Graceful handling for "Unsupported Operation"
+                error_message = response.json().get("Fault", {}).get("Error", [{}])[0].get("Message", "")
+                if "Unsupported Operation" in error_message or "customformstyle is not supported" in response.text:
+                    logger.warning("⏩ Intuit returned 'Unsupported Operation' (400) for CustomFormStyle. Skipping...")
+                    pass # Continue to the next attempt
+                else:
+                    logger.error(f"Failed to fetch CustomFormStyle: {response.status_code} - {response.text}")
+
+            else:
+                logger.error(f"Failed to fetch CustomFormStyle: {response.status_code} - {response.text}")
+
+        except requests.RequestException as e:
+            logger.error(f"❌ Error fetching CustomFormStyle: {str(e)}")
+
+        # ------------------------------------------------------------------------
+        # 3. ATTEMPT: Attachments API (Fallback, requires file download)
+        # ------------------------------------------------------------------------
+        try:
+            logger.info("🔍 Trying Attachments API for company logo...")
+            
+            # Query for an image (jpeg/png) attachment linked to the main Company entity
+            attachments_query = (
+                "SELECT Id, FileName FROM Attachable WHERE "
+                "ContentType IN ('image/jpeg', 'image/png') AND "
+                "AttachableRef.EntityType = 'Company' "
+                "MAXRESULTS 1"
+            )
+            query_url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/query?query={quote(attachments_query)}"
+            headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+
+            response = requests.get(query_url, headers=headers, timeout=30)
+            response.raise_for_status()
+            
+            data = response.json().get("QueryResponse", {})
+            attachments = data.get("Attachable", [])
+
+            if attachments:
+                attachment = attachments[0]
+                attachment_id = attachment["Id"]
+                file_name = attachment.get("FileName", f"qb_logo_{attachment_id}.png")
+                logger.info(f"Found potential logo attachment with ID: {attachment_id}")
+
+                # Download the attachment file
+                download_url = f"https://quickbooks.api.intuit.com/v3/company/{company.realm_id}/attachable/{attachment_id}/upload"
+                file_response = requests.get(download_url, headers=headers, timeout=30)
+                file_response.raise_for_status()
+
+                # *** PLACEHOLDER FOR YOUR FILE STORAGE LOGIC ***
+                # Replace this block with your actual code to save the file and get a URL
+                # public_logo_url = save_file_to_storage(file_name, file_response.content)
+                public_logo_url = f"/media/logos/{file_name}" # Example placeholder
+                
+                company.logo_url = public_logo_url
+                company._logo_url_updated = True
+                
+                logger.info(f"✅ Logo successfully fetched and stored from Attachments: {company.logo_url}")
+                return # Success!
+            else:
+                logger.info("No company-related image attachments found.")
+
+        except requests.exceptions.HTTPError as e:
+            logger.error(f"❌ HTTP Error during attachment fetch: {e.response.status_code} - {e.response.text}")
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in attachment logo fetch: {str(e)}")
+
+        logger.info("ℹ️ Logo fetch attempts completed without finding a logo.")
 
 class UserCompaniesView(APIView):
     """
@@ -589,6 +913,7 @@ class UserCompaniesView(APIView):
                 "id": str(company.id),
                 "name": company.name,
                 "realm_id": company.realm_id,
+                "logo": company.logo_url,
                 "is_connected": company.is_connected,
                 "is_default": membership.is_default,
                 "role": membership.role,

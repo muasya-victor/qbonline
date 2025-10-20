@@ -47,7 +47,7 @@ class CompanyAdmin(admin.ModelAdmin):
             "fields": ("name", "qb_company_name", "realm_id", "created_by")
         }),
         ("QuickBooks Details", {
-            "fields": ("currency_code", "connection_status_display", "token_expiry_display"),
+            "fields": ("currency_code", "connection_status_display", "token_expiry_display", "logo_url"),
         }),
         ("Connection Tokens", {
             "fields": ("access_token", "refresh_token", "token_data"),
