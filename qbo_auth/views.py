@@ -23,44 +23,25 @@ from django.db import IntegrityError
 import requests
 from urllib.parse import quote
 
+from project.settings_qbo import (
+    BASE_URL,
+    QBO_ENVIRONMENT,
+    QBO_CLIENT_ID,
+    QBO_REDIRECT_URI_FRONTEND,
+    AUTH_BASE_URL,
+    TOKEN_URL,
+    USERINFO_URL,
+    COMPANY_INFO_URL,
+    QBO_CLIENT_ID,
+    QBO_CLIENT_SECRET,
+    QBO_REDIRECT_URI,
+    QBO_REDIRECT_URI_FRONTEND,
+    PREFERENCES_URL
+)
+
+
 logger = logging.getLogger(__name__)
 User = get_user_model()
-
-# Endpoints - SANDBOX ENVIRONMENT (use all sandbox URLs)
-AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
-TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
-
-# Load environment variables
-QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
-
-# Sandbox URLs
-SANDBOX_USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
-SANDBOX_COMPANY_INFO_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
-SANDBOX_PREFERENCES_URL = "https://sandbox-quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
-
-# Production URLs
-PRODUCTION_USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
-PRODUCTION_COMPANY_INFO_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/companyinfo/{realm_id}"
-PRODUCTION_PREFERENCES_URL = "https://quickbooks.api.intuit.com/v3/company/{realm_id}/preferences"
-
-# Environment-specific selection
-if QBO_ENVIRONMENT == "production":
-    USERINFO_URL = PRODUCTION_USERINFO_URL
-    COMPANY_INFO_URL = PRODUCTION_COMPANY_INFO_URL
-    PREFERENCES_URL = PRODUCTION_PREFERENCES_URL
-    QBO_CLIENT_ID = os.getenv("PROD_QBO_CLIENT_ID")
-    QBO_CLIENT_SECRET = os.getenv("PROD_QBO_CLIENT_SECRET")
-    QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qbo-ui.netlify.app/qbo/callback")
-    QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qbo-ui.netlify.app/qbo/callback")
-else:
-    USERINFO_URL = SANDBOX_USERINFO_URL
-    COMPANY_INFO_URL = SANDBOX_COMPANY_INFO_URL
-    PREFERENCES_URL = SANDBOX_PREFERENCES_URL
-    QBO_CLIENT_ID = os.getenv("DEV_QBO_CLIENT_ID")
-    QBO_CLIENT_SECRET = os.getenv("DEV_QBO_CLIENT_SECRET")
-    QBO_REDIRECT_URI = os.getenv("DEV_QBO_REDIRECT_URI", "http://localhost:3000/qbo/callback/")
-    QBO_REDIRECT_URI_FRONTEND = os.getenv("DEV_QBO_REDIRECT_URI_FRONTEND", "http://localhost:3000/qbo/callback/")
-
 
 
 class UserRegistrationView(APIView):

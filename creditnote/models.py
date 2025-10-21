@@ -1,7 +1,11 @@
 from django.db import models
-from invoices.models import Invoice
-from companies.models import Company
+from django.conf import settings
 from common.models import TimeStampModel
+from companies.models import Company
+from invoices.models import Invoice
+
+User = settings.AUTH_USER_MODEL
+
 
 class CreditNote(TimeStampModel):
     """QuickBooks Credit Memo (Credit Note) model"""
@@ -10,12 +14,19 @@ class CreditNote(TimeStampModel):
     qb_credit_id = models.CharField(max_length=50, db_index=True)
     doc_number = models.CharField(max_length=100, blank=True, null=True)
     txn_date = models.DateField()
-    total_amt = models.DecimalField(max_digits=15, decimal_places=2)
-    balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-
+    
     # Customer info
     customer_ref_value = models.CharField(max_length=50, blank=True, null=True)
     customer_name = models.CharField(max_length=255, blank=True, null=True)
+    
+    # Amounts (matching Invoice model structure)
+    total_amt = models.DecimalField(max_digits=15, decimal_places=2)
+    balance = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+
+    # KRA validation status
+    is_kra_validated = models.BooleanField(default=False)
 
     # Optional reference to related invoice
     related_invoice = models.ForeignKey(
@@ -32,11 +43,11 @@ class CreditNote(TimeStampModel):
     customer_memo = models.TextField(blank=True, null=True)
     sync_token = models.CharField(max_length=50)
     
-    # Template info
-    template_id = models.CharField(max_length=100, blank=True, null=True)
-    template_name = models.CharField(max_length=255, blank=True, null=True)
+    # Template info (QuickBooks CustomTemplateRef)
+    template_id = models.CharField(max_length=100, blank=True, null=True, help_text="QuickBooks template ID used for this credit note")
+    template_name = models.CharField(max_length=255, blank=True, null=True, help_text="Name of the QuickBooks template")
 
-    # Raw data
+    # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
 
     class Meta:
@@ -45,6 +56,7 @@ class CreditNote(TimeStampModel):
             models.Index(fields=['company', 'txn_date']),
             models.Index(fields=['qb_credit_id']),
             models.Index(fields=['customer_name']),
+            models.Index(fields=['is_kra_validated']),
         ]
     
     def __str__(self):
@@ -57,14 +69,22 @@ class CreditNoteLine(TimeStampModel):
     credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name='line_items')
     line_num = models.IntegerField()
 
+    # Item details
     item_ref_value = models.CharField(max_length=50, blank=True, null=True)
     item_name = models.CharField(max_length=255, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
-
+    
+    # Quantities and amounts
     qty = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     unit_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
+    # Tax information (matching InvoiceLine structure)
+    tax_code_ref = models.CharField(max_length=50, blank=True, null=True)
+    tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
+    tax_rate = models.DecimalField(max_digits=5, decimal_places=4, default=0)
+    
+    # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
 
     class Meta:
@@ -73,5 +93,3 @@ class CreditNoteLine(TimeStampModel):
     
     def __str__(self):
         return f"{self.item_name} - {self.amount}"
-
-

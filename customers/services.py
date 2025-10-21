@@ -1,4 +1,5 @@
 # customers/services.py
+import os
 import json
 import requests
 from typing import List, Dict, Optional, Any
@@ -7,12 +8,12 @@ from datetime import datetime
 
 from .models import Customer
 from companies.models import Company
+from project.settings_qbo import BASE_URL, QBO_ENVIRONMENT, QBO_CLIENT_ID, QBO_REDIRECT_URI_FRONTEND
+
+
 
 class QuickBooksCustomerService:
     """Service to manage customer operations with QuickBooks API"""
-
-    BASE_URL = "https://sandbox-quickbooks.api.intuit.com"
-    # BASE_URL = "https://quickbooks.api.intuit.com"
 
     def __init__(self, company: Company):
         self.company = company
@@ -68,7 +69,7 @@ class QuickBooksCustomerService:
     # ---------------------------
     def fetch_customers_from_qb(self) -> List[Dict[str, Any]]:
         """Fetch all customers from QuickBooks API (handles pagination using STARTPOSITION/MAXRESULTS)"""
-        url = f"{self.BASE_URL}/v3/company/{self.company.realm_id}/query"
+        url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
         all_customers: List[Dict[str, Any]] = []
         start_position = 1
         batch_size = 1000
@@ -182,7 +183,7 @@ class QuickBooksCustomerService:
     # ---------------------------
     def create_customer_in_qb(self, customer_data: Dict) -> Dict[str, Any]:
         """Create a new customer in QuickBooks and return the created customer object."""
-        url = f"{self.BASE_URL}/v3/company/{self.company.realm_id}/customer"
+        url = f"{BASE_URL}/v3/company/{self.company.realm_id}/customer"
 
         qb_customer: Dict[str, Any] = {
             "DisplayName": customer_data.get('display_name'),
@@ -304,7 +305,7 @@ class QuickBooksCustomerService:
     # ---------------------------
     def update_customer_in_qb(self, customer: Customer, update_data: Dict) -> Dict[str, Any]:
         """Update an existing customer in QuickBooks with proper API format"""
-        url = f"{self.BASE_URL}/v3/company/{self.company.realm_id}/customer"
+        url = f"{BASE_URL}/v3/company/{self.company.realm_id}/customer"
 
         # Build the QuickBooks customer object - use exact QB field names
         qb_customer: Dict[str, Any] = {
