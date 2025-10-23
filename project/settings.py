@@ -30,7 +30,7 @@ SECRET_KEY = 'django-insecure-t78&&-m6yxjfxrne(6+8014_60(203jm^$uw*znmm8e!+@!s7k
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "212.47.77.18"]
+ALLOWED_HOSTS = ["localhost", "127.0.0.1", "212.47.77.18", "api.v2.smartinvoice.co.ke"]
 
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
