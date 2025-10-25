@@ -121,15 +121,42 @@ WSGI_APPLICATION = 'project.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-        'OPTIONS': {
-            'timeout': 420, 
+
+DATABASE_ENVIRONMENT = os.getenv("DJANGO_ENV", "development")
+
+if DATABASE_ENVIRONMENT == "production":
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'HOST': os.getenv('DB_HOST'),
+            'NAME': os.getenv('DB_NAME'),
+            'USER': os.getenv('DB_USER'),
+            'PASSWORD': os.getenv('DB_PASSWORD'),
+            'PORT': os.getenv('DB_PORT', '5432'),
+            'OPTIONS': {
+                # Timeout in milliseconds (420000 = 7 minutes)
+                'options': '-c statement_timeout=420000',
+            },
         }
     }
-}
+
+elif DATABASE_ENVIRONMENT == "testing":
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'test_db.sqlite3',
+            'OPTIONS': {'timeout': 420},
+        }
+    }
+
+else:  # development
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+            'OPTIONS': {'timeout': 420},
+        }
+    }
 
 
 # Password validation
