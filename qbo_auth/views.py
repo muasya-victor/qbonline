@@ -894,6 +894,7 @@ class UserCompaniesView(APIView):
                 "id": str(company.id),
                 "name": company.name,
                 "realm_id": company.realm_id,
+                "brand_color": company.brand_color,
                 "logo": company.logo_url,
                 "is_connected": company.is_connected,
                 "is_default": membership.is_default,

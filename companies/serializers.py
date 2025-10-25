@@ -71,7 +71,7 @@ class CompanyMembershipSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = CompanyMembership
-        fields = ['id', 'user', 'user_email', 'company', 'company_name', 'is_default', 'role']
+        fields = ['id', 'user', 'user_email', 'company', 'company_name', 'is_default', 'role', 'brand_color']
         read_only_fields = ['id', 'user', 'company']
 
 
@@ -79,8 +79,9 @@ class ActiveCompanySerializer(serializers.ModelSerializer):
     """Serializer for ActiveCompany model"""
     company_name = serializers.CharField(source='company.name', read_only=True)
     company_realm_id = serializers.CharField(source='company.realm_id', read_only=True)
+    company_data = CompanySerializer(source='company', read_only=True)
     
     class Meta:
         model = ActiveCompany
-        fields = ['id', 'user', 'company', 'company_name', 'company_realm_id', 'last_updated']
-        read_only_fields = ['id', 'user', 'last_updated']
+        fields = ['id', 'user', 'company', 'company_name', 'company_realm_id', 'last_updated', 'company_data']
+        read_only_fields = ['id', 'user', 'last_updated', 'company_data']
