@@ -122,7 +122,7 @@ WSGI_APPLICATION = 'project.wsgi.application'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
 
-DATABASE_ENVIRONMENT = os.getenv("DJANGO_ENV", "development")
+DATABASE_ENVIRONMENT = os.getenv("DATABASE_ENVIRONMENT", "development")
 
 if DATABASE_ENVIRONMENT == "production":
     DATABASES = {
