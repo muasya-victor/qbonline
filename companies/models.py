@@ -4,8 +4,14 @@ from django.db import models
 from django.conf import settings
 from django.utils import timezone
 from common.models import TimeStampModel  
+from django.core.validators import RegexValidator
 
 User = settings.AUTH_USER_MODEL
+
+kra_pin_validator = RegexValidator(
+    regex=r'^[A-Z]\d{9}[A-Z]$',
+    message="KRA PIN must be in the format A000000000B (one letter, nine digits, one letter)."
+)
 
 
 class Company(TimeStampModel):
@@ -57,6 +63,13 @@ class Company(TimeStampModel):
         default="TaxExcluded", 
         choices=[("TaxExcluded", "Tax Excluded"), ("TaxIncluded", "Tax Included")]
     )
+    kra_pin = models.CharField(
+        max_length=11,  
+        validators=[kra_pin_validator],
+        unique=True,
+        blank=True,
+        null=True
+    )
     
     # Invoice and billing preferences
     invoice_template_id = models.CharField(max_length=50, null=True, blank=True)  # QB template ID
@@ -93,6 +106,7 @@ class Company(TimeStampModel):
     access_token_expires_at = models.DateTimeField(null=True, blank=True)
     refresh_token_expires_at = models.DateTimeField(null=True, blank=True)
     token_data = models.JSONField(null=True, blank=True)
+    
 
     # Optional: who initially created this company
     created_by = models.ForeignKey(
@@ -123,7 +137,7 @@ class Company(TimeStampModel):
         """
         if self.access_token and self.access_token_expires_at:
             remaining = self.access_token_expires_at - timezone.now()
-            return remaining > timedelta(minutes=50)
+            return remaining > timedelta(minutes=5)
         return False
 
     def mark_connected(self, token_response: dict):

@@ -493,6 +493,7 @@ class QuickBooksCallbackView(APIView):
                 "invoice_logo_enabled": company.invoice_logo_enabled,
                 "brand_color": company.brand_color,
                 "logo_url": company.logo_url,
+                "kra_pin": company.kra_pin,
                 
                 # Features
                 "multi_currency_enabled": company.multi_currency_enabled,

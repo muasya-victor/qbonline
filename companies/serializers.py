@@ -20,7 +20,7 @@ class CompanySerializer(serializers.ModelSerializer):
             'qb_name_value', 'currency_code', 'logo_url',
             'invoice_template_id', 'invoice_template_name',
             'invoice_logo_enabled', 'brand_color', 'invoice_footer_text',
-            'created_by', 'created_by_email', 'created_at', 'updated_at'
+            'created_by', 'created_by_email', 'created_at', 'updated_at','kra_pin'
         ]
         read_only_fields = [
             'id', 'is_connected', 'created_at', 'updated_at',
@@ -60,7 +60,7 @@ class CompanyUpdateSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'name', 'invoice_logo_enabled', 'brand_color', 
-            'invoice_footer_text'
+            'invoice_footer_text','kra_pin'
         ]
 
 
@@ -83,5 +83,5 @@ class ActiveCompanySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = ActiveCompany
-        fields = ['id', 'user', 'company', 'company_name', 'company_realm_id', 'last_updated', 'company_data']
+        fields = ['id', 'user', 'company', 'company_name', 'company_realm_id', 'last_updated', 'company_data',]
         read_only_fields = ['id', 'user', 'last_updated', 'company_data']

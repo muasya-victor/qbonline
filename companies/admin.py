@@ -56,6 +56,9 @@ class CompanyAdmin(admin.ModelAdmin):
         ("Timestamps", {
             "fields": ("created_at", "updated_at"),
         }),
+        ("KRA", {
+            "fields": ("kra_pin",),
+        }),
     )
 
 
