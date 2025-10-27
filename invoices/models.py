@@ -1,11 +1,9 @@
-# invoices/models.py
 from django.db import models
 from django.conf import settings
 from common.models import TimeStampModel
 from companies.models import Company
 
 User = settings.AUTH_USER_MODEL
-
 
 class Invoice(TimeStampModel):
     """QuickBooks Invoice model"""
@@ -28,6 +26,10 @@ class Invoice(TimeStampModel):
 
     is_kra_validated = models.BooleanField(default=False)
     
+    # Enhanced tax information
+    tax_rate_ref = models.CharField(max_length=50, blank=True, null=True, help_text="QuickBooks TaxRateRef value")
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Actual tax percentage")
+    
     # Status and metadata
     private_note = models.TextField(blank=True, null=True)
     customer_memo = models.TextField(blank=True, null=True)
@@ -36,8 +38,6 @@ class Invoice(TimeStampModel):
     # Template info (QuickBooks CustomTemplateRef)
     template_id = models.CharField(max_length=100, blank=True, null=True, help_text="QuickBooks template ID used for this invoice")
     template_name = models.CharField(max_length=255, blank=True, null=True, help_text="Name of the QuickBooks template")
-
-
     
     # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
@@ -70,10 +70,11 @@ class InvoiceLine(TimeStampModel):
     unit_price = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
-    # Tax information
-    tax_code_ref = models.CharField(max_length=50, blank=True, null=True)
+    # Enhanced tax information
+    tax_code_ref = models.CharField(max_length=50, blank=True, null=True, help_text="QuickBooks TaxCodeRef value")
+    tax_rate_ref = models.CharField(max_length=50, blank=True, null=True, help_text="QuickBooks TaxRateRef value")
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Actual tax percentage")
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
-    tax_rate = models.DecimalField(max_digits=5, decimal_places=4, default=0) 
     
     # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
@@ -84,4 +85,3 @@ class InvoiceLine(TimeStampModel):
     
     def __str__(self):
         return f"{self.item_name} - {self.amount}"
-

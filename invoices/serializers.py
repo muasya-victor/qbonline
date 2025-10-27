@@ -5,14 +5,14 @@ from companies.models import Company
 from kra.models import KRAInvoiceSubmission
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
-    """Serializer for invoice line items"""
+    """Serializer for invoice line items with enhanced tax fields"""
 
     class Meta:
         model = InvoiceLine
         fields = [
             'id', 'line_num', 'item_ref_value', 'item_name',
             'description', 'qty', 'unit_price', 'amount',
-            'tax_code_ref', 'tax_amount', 'tax_rate'
+            'tax_code_ref', 'tax_rate_ref', 'tax_percent', 'tax_amount'
         ]
 
 
@@ -29,7 +29,7 @@ class KRASubmissionSerializer(serializers.ModelSerializer):
 
 
 class InvoiceSerializer(serializers.ModelSerializer):
-    """Serializer for invoices with company currency support"""
+    """Serializer for invoices with company currency support and enhanced tax fields"""
 
     line_items = InvoiceLineSerializer(many=True, read_only=True)
     currency_code = serializers.CharField(source='company.currency_code', read_only=True)
@@ -46,10 +46,14 @@ class InvoiceSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             'id', 'qb_invoice_id', 'doc_number', 'txn_date', 'due_date',
-            'customer_name', 'total_amt', 'balance', 'subtotal', 'tax_total',
+            'customer_name', 'customer_ref_value', 'total_amt', 'balance', 
+            'subtotal', 'tax_total', 'tax_rate_ref', 'tax_percent',
             'private_note', 'customer_memo', 'currency_code', 'status', 
-            'line_items', 'is_kra_validated',  'kra_submission'
+            'line_items', 'is_kra_validated', 'kra_submission',
+            'template_id', 'template_name', 'sync_token', 'raw_data',
+            'created_at', 'updated_at'
         ]
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_status(self, obj):
         """Determine invoice status based on balance"""
@@ -71,6 +75,24 @@ class InvoiceSerializer(serializers.ModelSerializer):
             return KRASubmissionSerializer(latest_submission).data
         return None
     
+    def to_representation(self, instance):
+        """Custom representation to handle tax field names and formatting"""
+        representation = super().to_representation(instance)
+        
+        # Ensure tax fields are properly formatted
+        if representation.get('tax_percent') is not None:
+            representation['tax_percent'] = float(representation['tax_percent'])
+        if representation.get('tax_total') is not None:
+            representation['tax_total'] = float(representation['tax_total'])
+        if representation.get('subtotal') is not None:
+            representation['subtotal'] = float(representation['subtotal'])
+        if representation.get('total_amt') is not None:
+            representation['total_amt'] = float(representation['total_amt'])
+        if representation.get('balance') is not None:
+            representation['balance'] = float(representation['balance'])
+            
+        return representation
+
 
 class CompanyInfoSerializer(serializers.ModelSerializer):
     """Serializer for company information in API responses"""
@@ -120,4 +142,3 @@ class CompanyInfoSerializer(serializers.ModelSerializer):
         if obj.qb_website:
             contact['website'] = obj.qb_website
         return contact if contact else None
-

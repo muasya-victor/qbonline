@@ -1,7 +1,6 @@
-# invoices/services.py
 import requests
 import logging
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from django.utils import timezone
 from datetime import datetime
 from decimal import Decimal
@@ -18,7 +17,7 @@ QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
 
 
 class QuickBooksInvoiceService:
-    """Service to fetch and sync invoices from QuickBooks API with tax support"""
+    """Service to fetch and sync invoices from QuickBooks API with enhanced tax support"""
     
     def __init__(self, company: Company):
         self.company = company
@@ -115,63 +114,50 @@ class QuickBooksInvoiceService:
         logger.info(f"Finished fetching {len(all_invoices)} total invoices for company {self.company.realm_id}")
         return all_invoices
     
-    def extract_tax_information(self, invoice_data: Dict) -> tuple:
-        """Extract tax information from invoice data"""
-        try:
-            txn_tax_detail = invoice_data.get('TxnTaxDetail', {})
-            total_tax = Decimal(str(txn_tax_detail.get('TotalTax', 0)))
-            total_amt = Decimal(str(invoice_data.get('TotalAmt', 0)))
+    def extract_tax_information(self, invoice_data: Dict) -> Tuple[Decimal, Decimal, str, Decimal]:
+        """Extract comprehensive tax information from invoice data"""
+        subtotal = Decimal('0.00')
+        tax_total = Decimal('0.00')
+        tax_rate_ref = ""
+        tax_percent = Decimal('0.00')
+        
+        # Calculate subtotal from line items
+        for line_data in invoice_data.get('Line', []):
+            if line_data.get('DetailType') == 'SalesItemLineDetail':
+                subtotal += Decimal(str(line_data.get('Amount', 0)))
+        
+        # Extract tax information from TxnTaxDetail
+        if 'TxnTaxDetail' in invoice_data:
+            tax_detail = invoice_data['TxnTaxDetail']
+            tax_total = Decimal(str(tax_detail.get('TotalTax', 0)))
             
-            # Calculate subtotal
-            subtotal = total_amt - total_tax
-            
-            logger.debug(f"Tax extraction - TotalAmt: {total_amt}, TotalTax: {total_tax}, Subtotal: {subtotal}")
-            return subtotal, total_tax
-            
-        except Exception as e:
-            logger.error(f"Error extracting tax information for invoice: {str(e)}")
-            logger.error(f"Invoice data: {json.dumps(invoice_data, indent=2)}")
-            return Decimal('0.00'), Decimal('0.00')
+            if 'TaxLine' in tax_detail and tax_detail['TaxLine']:
+                tax_line = tax_detail['TaxLine'][0]  # First tax line
+                tax_line_detail = tax_line.get('TaxLineDetail', {})
+                
+                tax_rate_ref = tax_line_detail.get('TaxRateRef', {}).get('value', '')
+                tax_percent = Decimal(str(tax_line_detail.get('TaxPercent', 0)))
+                
+                logger.debug(f"Extracted tax info - RateRef: {tax_rate_ref}, Percent: {tax_percent}%, TotalTax: {tax_total}")
+        
+        return subtotal, tax_total, tax_rate_ref, tax_percent
     
-    def extract_line_item_tax(self, line_data: Dict) -> tuple:
-        """Extract tax information from line item"""
-        try:
-            detail = line_data.get('SalesItemLineDetail', {})
-            tax_code_ref = detail.get('TaxCodeRef', {}).get('value')
-            
-            amount = Decimal(str(line_data.get('Amount', 0)))
-            tax_amount = Decimal('0.00')
-            tax_rate = Decimal('0.00')
-            
-            # Try to get tax amount from TxnTaxDetail tax lines
-            txn_tax_detail = line_data.get('TxnTaxDetail', {})
-            if txn_tax_detail:
-                tax_lines = txn_tax_detail.get('TaxLine', [])
-                for tax_line in tax_lines:
-                    tax_amount += Decimal(str(tax_line.get('Amount', 0)))
-            
-            # If no tax amount found, try to calculate from tax rate
-            if tax_amount == 0:
-                tax_rate_ref = detail.get('TaxRateRef', {})
-                if tax_rate_ref:
-                    tax_percent = Decimal(str(detail.get('TaxPercent', 0)))
-                    tax_rate = tax_percent
-                    if tax_percent > 0:
-                        tax_amount = amount * (tax_percent / Decimal('100.0'))
-            
-            logger.debug(f"Line item tax - Amount: {amount}, Tax: {tax_amount}, Rate: {tax_rate}, Code: {tax_code_ref}")
-            return tax_code_ref, tax_amount, tax_rate
-            
-        except Exception as e:
-            logger.error(f"Error extracting line item tax: {str(e)}")
-            logger.error(f"Line data: {json.dumps(line_data, indent=2)}")
-            return None, Decimal('0.00'), Decimal('0.00')
+    def extract_line_item_tax(self, line_data: Dict, invoice_tax_percent: Decimal) -> Tuple[str, Decimal, Decimal]:
+        """Extract tax information for a line item"""
+        detail = line_data.get('SalesItemLineDetail', {})
+        tax_code_ref = detail.get('TaxCodeRef', {}).get('value', '')
+        
+        # Calculate tax amount for this line using the invoice-level tax percentage
+        line_amount = Decimal(str(line_data.get('Amount', 0)))
+        tax_amount = line_amount * (invoice_tax_percent / Decimal('100'))
+        
+        return tax_code_ref, tax_amount, invoice_tax_percent
     
     def sync_invoice_to_db(self, invoice_data: Dict) -> Invoice:
-        """Sync single invoice to database with tax information"""
+        """Sync single invoice to database with enhanced tax information"""
         try:
-            # Extract tax information
-            subtotal, tax_total = self.extract_tax_information(invoice_data)
+            # Extract comprehensive tax information
+            subtotal, tax_total, tax_rate_ref, tax_percent = self.extract_tax_information(invoice_data)
             
             invoice, created = Invoice.objects.update_or_create(
                 company=self.company,
@@ -184,8 +170,10 @@ class QuickBooksInvoiceService:
                     'customer_name': invoice_data.get('CustomerRef', {}).get('name'),
                     'total_amt': invoice_data.get('TotalAmt', 0),
                     'balance': invoice_data.get('Balance', 0),
-                    'subtotal': subtotal,  # Calculated subtotal
-                    'tax_total': tax_total,  # Total tax from TxnTaxDetail
+                    'subtotal': subtotal,
+                    'tax_total': tax_total,
+                    'tax_rate_ref': tax_rate_ref,
+                    'tax_percent': tax_percent,
                     'private_note': invoice_data.get('PrivateNote'),
                     'customer_memo': invoice_data.get('CustomerMemo', {}).get('value'),
                     'sync_token': invoice_data.get('SyncToken'),
@@ -207,14 +195,14 @@ class QuickBooksInvoiceService:
             if not created:
                 invoice.line_items.all().delete()
 
-            # Create line items with tax information
+            # Create line items with enhanced tax information
             line_items_created = 0
             for line_data in invoice_data.get('Line', []):
                 if line_data.get('DetailType') == 'SalesItemLineDetail':
                     detail = line_data.get('SalesItemLineDetail', {})
                     
-                    # Extract tax information for this line item
-                    tax_code_ref, tax_amount, tax_rate = self.extract_line_item_tax(line_data)
+                    # Extract tax information for this line item using invoice-level tax data
+                    tax_code_ref, tax_amount, tax_percent = self.extract_line_item_tax(line_data, invoice.tax_percent)
                     
                     InvoiceLine.objects.create(
                         invoice=invoice,
@@ -226,17 +214,19 @@ class QuickBooksInvoiceService:
                         unit_price=detail.get('UnitPrice', 0),
                         amount=line_data.get('Amount', 0),
                         tax_code_ref=tax_code_ref,
+                        tax_rate_ref=invoice.tax_rate_ref,
+                        tax_percent=tax_percent,
                         tax_amount=tax_amount,
-                        tax_rate=tax_rate,
                         raw_data=line_data
                     )
                     line_items_created += 1
                     
                     logger.debug(f"Line {line_data.get('LineNum', 0)}: {detail.get('ItemRef', {}).get('name')} - "
-                                f"Amount: {line_data.get('Amount', 0)}, Tax: {tax_amount}, Tax Code: {tax_code_ref}")
+                                f"Amount: {line_data.get('Amount', 0)}, Tax: {tax_amount}, "
+                                f"Tax Code: {tax_code_ref}, Tax Percent: {tax_percent}%")
 
             logger.info(f"Synced invoice {invoice.doc_number} - "
-                       f"Subtotal: {subtotal}, Tax: {tax_total}, Total: {invoice.total_amt}, "
+                       f"Subtotal: {subtotal}, Tax: {tax_total} ({tax_percent}%), Total: {invoice.total_amt}, "
                        f"Lines: {line_items_created} ({'created' if created else 'updated'})")
             return invoice
             
@@ -272,7 +262,7 @@ class QuickBooksInvoiceService:
 
 
 class QuickBooksCreditNoteService:
-    """Service to fetch and sync credit notes (Credit Memos) from QuickBooks with tax support"""
+    """Service to fetch and sync credit notes (Credit Memos) from QuickBooks with enhanced tax support"""
 
     def __init__(self, company: Company):
         self.company = company
@@ -369,60 +359,47 @@ class QuickBooksCreditNoteService:
         logger.info(f"Finished fetching {len(all_credits)} total credit notes for company {self.company.realm_id}")
         return all_credits
 
-    def extract_credit_note_tax_information(self, credit_data: Dict) -> tuple:
-        """Extract tax information from credit note data"""
-        try:
-            txn_tax_detail = credit_data.get('TxnTaxDetail', {})
-            total_tax = Decimal(str(txn_tax_detail.get('TotalTax', 0)))
-            total_amt = Decimal(str(credit_data.get('TotalAmt', 0)))
+    def extract_credit_note_tax_information(self, credit_data: Dict) -> Tuple[Decimal, Decimal, str, Decimal]:
+        """Extract comprehensive tax information from credit note data"""
+        subtotal = Decimal('0.00')
+        tax_total = Decimal('0.00')
+        tax_rate_ref = ""
+        tax_percent = Decimal('0.00')
+        
+        # Calculate subtotal from line items
+        for line_data in credit_data.get('Line', []):
+            if line_data.get('DetailType') == 'SalesItemLineDetail':
+                subtotal += Decimal(str(line_data.get('Amount', 0)))
+        
+        # Extract tax information from TxnTaxDetail
+        if 'TxnTaxDetail' in credit_data:
+            tax_detail = credit_data['TxnTaxDetail']
+            tax_total = Decimal(str(tax_detail.get('TotalTax', 0)))
             
-            # Calculate subtotal
-            subtotal = total_amt - total_tax
-            
-            logger.debug(f"Credit note tax extraction - TotalAmt: {total_amt}, TotalTax: {total_tax}, Subtotal: {subtotal}")
-            return subtotal, total_tax
-            
-        except Exception as e:
-            logger.error(f"Error extracting tax information for credit note: {str(e)}")
-            logger.error(f"Credit note data: {json.dumps(credit_data, indent=2)}")
-            return Decimal('0.00'), Decimal('0.00')
+            if 'TaxLine' in tax_detail and tax_detail['TaxLine']:
+                tax_line = tax_detail['TaxLine'][0]  # First tax line
+                tax_line_detail = tax_line.get('TaxLineDetail', {})
+                
+                tax_rate_ref = tax_line_detail.get('TaxRateRef', {}).get('value', '')
+                tax_percent = Decimal(str(tax_line_detail.get('TaxPercent', 0)))
+                
+                logger.debug(f"Extracted credit note tax info - RateRef: {tax_rate_ref}, Percent: {tax_percent}%, TotalTax: {tax_total}")
+        
+        return subtotal, tax_total, tax_rate_ref, tax_percent
 
-    def extract_credit_line_item_tax(self, line_data: Dict) -> tuple:
-        """Extract tax information from credit note line item"""
-        try:
-            detail = line_data.get('SalesItemLineDetail', {})
-            tax_code_ref = detail.get('TaxCodeRef', {}).get('value')
-            
-            amount = Decimal(str(line_data.get('Amount', 0)))
-            tax_amount = Decimal('0.00')
-            tax_rate = Decimal('0.00')
-            
-            # Try to get tax amount from TxnTaxDetail tax lines
-            txn_tax_detail = line_data.get('TxnTaxDetail', {})
-            if txn_tax_detail:
-                tax_lines = txn_tax_detail.get('TaxLine', [])
-                for tax_line in tax_lines:
-                    tax_amount += Decimal(str(tax_line.get('Amount', 0)))
-            
-            # If no tax amount found, try to calculate from tax rate
-            if tax_amount == 0:
-                tax_rate_ref = detail.get('TaxRateRef', {})
-                if tax_rate_ref:
-                    tax_percent = Decimal(str(detail.get('TaxPercent', 0)))
-                    tax_rate = tax_percent
-                    if tax_percent > 0:
-                        tax_amount = amount * (tax_percent / Decimal('100.0'))
-            
-            logger.debug(f"Credit line item tax - Amount: {amount}, Tax: {tax_amount}, Rate: {tax_rate}, Code: {tax_code_ref}")
-            return tax_code_ref, tax_amount, tax_rate
-            
-        except Exception as e:
-            logger.error(f"Error extracting credit line item tax: {str(e)}")
-            logger.error(f"Credit line data: {json.dumps(line_data, indent=2)}")
-            return None, Decimal('0.00'), Decimal('0.00')
+    def extract_credit_line_item_tax(self, line_data: Dict, credit_tax_percent: Decimal) -> Tuple[str, Decimal, Decimal]:
+        """Extract tax information for a credit note line item"""
+        detail = line_data.get('SalesItemLineDetail', {})
+        tax_code_ref = detail.get('TaxCodeRef', {}).get('value', '')
+        
+        # Calculate tax amount for this line using the credit note-level tax percentage
+        line_amount = Decimal(str(line_data.get('Amount', 0)))
+        tax_amount = line_amount * (credit_tax_percent / Decimal('100'))
+        
+        return tax_code_ref, tax_amount, credit_tax_percent
 
     def sync_credit_note_to_db(self, credit_data: Dict) -> CreditNote:
-        """Sync single credit note to database with tax information"""
+        """Sync single credit note to database with enhanced tax information"""
         try:
             # Find related invoice if any
             related_invoice = None
@@ -436,8 +413,8 @@ class QuickBooksCreditNoteService:
                     ).first()
                     logger.debug(f"Found related invoice for credit note: {invoice_ref.get('TxnId')}")
 
-            # Extract tax information
-            subtotal, tax_total = self.extract_credit_note_tax_information(credit_data)
+            # Extract comprehensive tax information
+            subtotal, tax_total, tax_rate_ref, tax_percent = self.extract_credit_note_tax_information(credit_data)
             
             credit_note, created = CreditNote.objects.update_or_create(
                 company=self.company,
@@ -447,8 +424,10 @@ class QuickBooksCreditNoteService:
                     'txn_date': datetime.strptime(credit_data['TxnDate'], '%Y-%m-%d').date(),
                     'total_amt': credit_data.get('TotalAmt', 0),
                     'balance': credit_data.get('Balance', 0),
-                    'subtotal': subtotal,  # Calculated subtotal
-                    'tax_total': tax_total,  # Total tax from TxnTaxDetail
+                    'subtotal': subtotal,
+                    'tax_total': tax_total,
+                    'tax_rate_ref': tax_rate_ref,
+                    'tax_percent': tax_percent,
                     'customer_ref_value': credit_data.get('CustomerRef', {}).get('value'),
                     'customer_name': credit_data.get('CustomerRef', {}).get('name'),
                     'private_note': credit_data.get('PrivateNote'),
@@ -473,14 +452,14 @@ class QuickBooksCreditNoteService:
             if not created:
                 credit_note.line_items.all().delete()
 
-            # Create line items with tax information
+            # Create line items with enhanced tax information
             line_items_created = 0
             for line_data in credit_data.get('Line', []):
                 if line_data.get('DetailType') == 'SalesItemLineDetail':
                     detail = line_data.get('SalesItemLineDetail', {})
                     
-                    # Extract tax information for this line item
-                    tax_code_ref, tax_amount, tax_rate = self.extract_credit_line_item_tax(line_data)
+                    # Extract tax information for this line item using credit note-level tax data
+                    tax_code_ref, tax_amount, tax_percent = self.extract_credit_line_item_tax(line_data, credit_note.tax_percent)
                     
                     CreditNoteLine.objects.create(
                         credit_note=credit_note,
@@ -492,17 +471,19 @@ class QuickBooksCreditNoteService:
                         unit_price=detail.get('UnitPrice', 0),
                         amount=line_data.get('Amount', 0),
                         tax_code_ref=tax_code_ref,
+                        tax_rate_ref=credit_note.tax_rate_ref,
+                        tax_percent=tax_percent,
                         tax_amount=tax_amount,
-                        tax_rate=tax_rate,
                         raw_data=line_data
                     )
                     line_items_created += 1
                     
                     logger.debug(f"Credit line {line_data.get('LineNum', 0)}: {detail.get('ItemRef', {}).get('name')} - "
-                                f"Amount: {line_data.get('Amount', 0)}, Tax: {tax_amount}, Tax Code: {tax_code_ref}")
+                                f"Amount: {line_data.get('Amount', 0)}, Tax: {tax_amount}, "
+                                f"Tax Code: {tax_code_ref}, Tax Percent: {tax_percent}%")
 
             logger.info(f"Synced credit note {credit_note.doc_number or credit_note.qb_credit_id} - "
-                       f"Subtotal: {subtotal}, Tax: {tax_total}, Total: {credit_note.total_amt}, "
+                       f"Subtotal: {subtotal}, Tax: {tax_total} ({tax_percent}%), Total: {credit_note.total_amt}, "
                        f"Lines: {line_items_created} ({'created' if created else 'updated'})")
             return credit_note
             
@@ -535,5 +516,3 @@ class QuickBooksCreditNoteService:
         except Exception as e:
             logger.error(f"Failed to sync credit notes for company {self.company.realm_id}: {str(e)}")
             raise
-
-

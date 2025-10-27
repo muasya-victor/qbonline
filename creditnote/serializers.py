@@ -11,9 +11,10 @@ class CreditNoteLineSerializer(serializers.ModelSerializer):
     class Meta:
         model = CreditNoteLine
         fields = [
-            "id", "line_num", "item_ref_value", "item_name", "description",
-            "qty", "unit_price", "amount", "tax_code_ref", "tax_amount", 
-            "tax_rate", "raw_data", "created_at", "updated_at"
+            "id", "credit_note", "line_num", "item_ref_value", "item_name", "description",
+            "qty", "unit_price", "amount",
+            "tax_code_ref", "tax_rate_ref", "tax_percent", "tax_amount",
+            "raw_data", "created_at", "updated_at"
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
@@ -25,7 +26,7 @@ class KRACreditNoteSubmissionSerializer(serializers.ModelSerializer):
         model = KRACreditNoteSubmission
         fields = [
             "id", "kra_credit_note_number", "receipt_signature", "qr_code_data",
-            "status", "error_message", "response_data", "submitted_at",  # Changed kra_response to response_data
+            "status", "error_message", "response_data", "submitted_at",
             "validated_at", "created_at", "updated_at"
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
@@ -37,7 +38,7 @@ class RelatedInvoiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Invoice
         fields = [
-            "id", "doc_number", "customer_name", "total_amt", 
+            "id", "doc_number", "customer_name", "total_amt",
             "subtotal", "tax_total", "txn_date", "balance"
         ]
 
@@ -48,8 +49,8 @@ class CompanyInfoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Company
         fields = [
-            "id", "name", "qb_company_name", "qb_legal_name", 
-            "currency_code", "realm_id", "logo_url", "brand_color", 
+            "id", "name", "qb_company_name", "qb_legal_name",
+            "currency_code", "realm_id", "logo_url", "brand_color",
             "invoice_footer_text"
         ]
 
@@ -71,19 +72,20 @@ class CreditNoteSerializer(serializers.ModelSerializer):
         model = CreditNote
         fields = [
             # Basic identification
-            "id", "company", "company_name", "qb_credit_id", "doc_number", 
+            "id", "company", "company_name", "qb_credit_id", "doc_number",
             
             # Dates
             "txn_date", "created_at", "updated_at",
             
             # Amounts and financial data
-            "total_amt", "balance", "subtotal", "tax_total", "currency_code",
+            "total_amt", "balance", "subtotal", "tax_total", 
+            "tax_rate_ref", "tax_percent", "currency_code",
             
             # Customer information
-            "customer_ref_value", "customer_name", 
+            "customer_ref_value", "customer_name",
             
             # Notes and metadata
-            "private_note", "customer_memo", "sync_token", 
+            "private_note", "customer_memo", "sync_token",
             
             # Template information
             "template_id", "template_name",
@@ -92,14 +94,14 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             "related_invoice", "line_items", "kra_submissions",
             
             # Status fields
-            "status", "is_kra_validated", "has_kra_submission", 
+            "status", "is_kra_validated", "has_kra_submission",
             "latest_kra_status", "kra_validation_status",
             
             # Raw data
             "raw_data"
         ]
         read_only_fields = [
-            "qb_credit_id", "sync_token", "raw_data", "created_at", 
+            "qb_credit_id", "sync_token", "raw_data", "created_at",
             "updated_at", "is_kra_validated"
         ]
 
@@ -158,7 +160,7 @@ class CreditNoteDetailSerializer(CreditNoteSerializer):
             "subtotal": float(obj.subtotal),
             "tax_total": float(obj.tax_total),
             "total_amount": float(obj.total_amt),
-            "tax_rate_percentage": round((obj.tax_total / obj.subtotal * 100), 2) if obj.subtotal > 0 else 0
+            "tax_rate_percentage": float(obj.tax_percent)
         }
 
     def get_applied_amount(self, obj):
@@ -182,8 +184,9 @@ class CreditNoteSummarySerializer(serializers.ModelSerializer):
         model = CreditNote
         fields = [
             "id", "qb_credit_id", "doc_number", "txn_date", "customer_name",
-            "total_amt", "balance", "subtotal", "tax_total", "status",
-            "currency_code", "is_kra_validated", "has_kra_submission", 
+            "total_amt", "balance", "subtotal", "tax_total",
+            "tax_percent", "status", "currency_code",
+            "is_kra_validated", "has_kra_submission",
             "kra_status", "created_at"
         ]
 
@@ -206,4 +209,3 @@ class CreditNoteSummarySerializer(serializers.ModelSerializer):
         
         latest_submission = obj.kra_submissions.order_by('-created_at').first()
         return latest_submission.status if latest_submission else 'not_submitted'
-    
