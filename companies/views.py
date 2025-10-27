@@ -12,7 +12,7 @@ from .serializers import (
     ActiveCompanySerializer
 )
 from users.models import User
-
+from rest_framework.parsers import MultiPartParser, FormParser
 
 class CompanyViewSet(viewsets.ModelViewSet):
     """
@@ -20,6 +20,7 @@ class CompanyViewSet(viewsets.ModelViewSet):
     Users can only access companies they are members of.
     """
     permission_classes = [IsAuthenticated]
+    parser_classes = [MultiPartParser, FormParser] 
     
     def get_queryset(self):
         """Return companies that the user is a member of"""

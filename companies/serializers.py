@@ -9,6 +9,7 @@ class CompanySerializer(serializers.ModelSerializer):
     """Serializer for Company model - used for read operations"""
     is_connected = serializers.ReadOnlyField()
     created_by_email = serializers.EmailField(source='created_by.email', read_only=True)
+    custom_logo_url = serializers.SerializerMethodField()
     
     class Meta:
         model = Company
@@ -20,7 +21,8 @@ class CompanySerializer(serializers.ModelSerializer):
             'qb_name_value', 'currency_code', 'logo_url',
             'invoice_template_id', 'invoice_template_name',
             'invoice_logo_enabled', 'brand_color', 'invoice_footer_text',
-            'created_by', 'created_by_email', 'created_at', 'updated_at','kra_pin'
+            'created_by', 'created_by_email', 'created_at', 'updated_at',
+            'kra_pin', 'custom_logo_url', 'custom_logo',
         ]
         read_only_fields = [
             'id', 'is_connected', 'created_at', 'updated_at',
@@ -30,6 +32,14 @@ class CompanySerializer(serializers.ModelSerializer):
             'qb_name_value', 'currency_code', 'logo_url',
             'invoice_template_id', 'invoice_template_name'
         ]
+
+    def get_custom_logo_url(self, obj):
+        """Return full URL for the uploaded custom logo"""
+        request = self.context.get('request')
+        if obj.custom_logo and hasattr(obj.custom_logo, 'url'):
+            url = obj.custom_logo.url
+            return request.build_absolute_uri(url) if request else url
+        return None
 
 
 class CompanyCreateSerializer(serializers.ModelSerializer):
@@ -60,7 +70,7 @@ class CompanyUpdateSerializer(serializers.ModelSerializer):
         model = Company
         fields = [
             'name', 'invoice_logo_enabled', 'brand_color', 
-            'invoice_footer_text','kra_pin'
+            'invoice_footer_text','kra_pin','custom_logo'
         ]
 
 

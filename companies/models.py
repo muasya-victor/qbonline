@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import timedelta
 from django.db import models
@@ -12,6 +13,17 @@ kra_pin_validator = RegexValidator(
     regex=r'^[A-Z]\d{9}[A-Z]$',
     message="KRA PIN must be in the format A000000000B (one letter, nine digits, one letter)."
 )
+
+def company_logo_upload_to(instance, filename):
+    """
+    Create a unique filename and store under media/logo/<company_id_or_uuid>/<filename>
+    Example resulting path: media/logo/<company.id>/logo-<uuid4>.png
+    """
+    base, ext = os.path.splitext(filename)
+    company_ident = str(getattr(instance, "id", uuid.uuid4()))
+    filename = f"logo-{uuid.uuid4().hex}{ext.lower()}"
+    return os.path.join("logo", company_ident, filename)
+
 
 
 class Company(TimeStampModel):
@@ -70,6 +82,12 @@ class Company(TimeStampModel):
         blank=True,
         null=True
     )
+    custom_logo = models.ImageField(
+        upload_to=company_logo_upload_to,  
+        null=True,
+        blank=True,
+    )
+
     
     # Invoice and billing preferences
     invoice_template_id = models.CharField(max_length=50, null=True, blank=True)  # QB template ID
@@ -78,7 +96,7 @@ class Company(TimeStampModel):
     default_payment_terms = models.CharField(max_length=100, null=True, blank=True)
     
     # Invoice branding and template fields
-    logo_url = models.URLField(null=True, blank=True)  # Company logo URL
+    logo_url = models.URLField(null=True, blank=True)  
     invoice_logo_enabled = models.BooleanField(default=True)  # Show logo on invoices
     brand_color = models.CharField(max_length=7, default='#0077C5')  # Hex color for branding
     invoice_footer_text = models.TextField(null=True, blank=True)  # Custom footer text
