@@ -1,14 +1,14 @@
-# customers/services.py
 import os
 import json
 import requests
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any,Tuple
 from django.utils import timezone
 from datetime import datetime
 
 from .models import Customer
 from companies.models import Company
 from project.settings_qbo import BASE_URL, QBO_ENVIRONMENT, QBO_CLIENT_ID, QBO_REDIRECT_URI_FRONTEND
+from invoices.services import QuickBooksInvoiceService  # Add this import
 
 
 
@@ -167,16 +167,23 @@ class QuickBooksCustomerService:
         print(f"✅ Synced customer {customer.display_name} ({'created' if created else 'updated'})")
         return customer
 
-    def sync_all_customers(self) -> int:
-        """Fetch all customers from QB and sync them into the DB. Returns number synced."""
+    def sync_all_customers(self) -> Tuple[int, int]:
+        """Fetch all customers from QB and sync them into the DB. Returns (success_count, failed_count)"""
         customers_data = self.fetch_customers_from_qb()
-        synced_count = 0
+        success_count = 0
+        failed_count = 0
 
         for customer_data in customers_data:
-            self.sync_customer_to_db(customer_data)
-            synced_count += 1
+            try:
+                self.sync_customer_to_db(customer_data)
+                success_count += 1
+            except Exception as e:
+                failed_count += 1
+                print(f"❌ Failed to sync customer {customer_data.get('DisplayName', 'Unknown')}: {str(e)}")
+                continue
 
-        return synced_count
+        print(f"🎯 Customer sync completed: {success_count} successful, {failed_count} failed")
+        return success_count, failed_count
 
     # ---------------------------
     # Create customer in QuickBooks
@@ -530,3 +537,135 @@ class QuickBooksCustomerService:
         customer.raw_data = qb_customer_data
         customer.save()
         return customer
+
+    def sync_customer_invoices(self, customer: Customer) -> Tuple[int, int]:
+        """Sync all invoices for a specific customer"""
+        invoice_service = QuickBooksInvoiceService(self.company)
+        
+        # Query QuickBooks for invoices for this specific customer
+        url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
+        query = f"SELECT * FROM Invoice WHERE CustomerRef = '{customer.qb_customer_id}'"
+        
+        try:
+            response = requests.get(
+                url,
+                headers=self.get_headers(),
+                params={'query': query},
+                timeout=30
+            )
+            response.raise_for_status()
+            
+            data = response.json()
+            invoices_data = data.get("QueryResponse", {}).get("Invoice", [])
+            
+            success_count = 0
+            failed_count = 0
+            
+            for invoice_data in invoices_data:
+                try:
+                    invoice_service.sync_invoice_to_db(invoice_data)
+                    success_count += 1
+                except Exception as e:
+                    failed_count += 1
+                    print(f"❌ Failed to sync invoice {invoice_data.get('DocNumber', 'Unknown')} for customer {customer.display_name}: {str(e)}")
+            
+            print(f"✅ Synced {success_count} invoices for customer {customer.display_name} ({failed_count} failed)")
+            return success_count, failed_count
+            
+        except Exception as e:
+            print(f"❌ Failed to fetch invoices for customer {customer.display_name}: {str(e)}")
+            raise
+
+    def fetch_customer_from_qb(self, customer_qb_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch a specific customer from QuickBooks by ID"""
+        try:
+            url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
+            query = f"SELECT * FROM Customer WHERE Id = '{customer_qb_id}'"
+            
+            print(f"🔍 Fetching customer {customer_qb_id} from QuickBooks...")
+            
+            response = requests.get(
+                url,
+                headers=self.get_headers(),
+                params={'query': query},
+                timeout=30
+            )
+
+            if response.status_code == 401:
+                raise Exception("QuickBooks access token expired or unauthorized (401). Refresh token required.")
+
+            response.raise_for_status()
+
+            data = response.json()
+            customers = data.get("QueryResponse", {}).get("Customer", [])
+            
+            if customers and len(customers) > 0:
+                print(f"✅ Successfully fetched customer {customer_qb_id} from QuickBooks")
+                return customers[0]
+            else:
+                print(f"❌ Customer {customer_qb_id} not found in QuickBooks")
+                return None
+                
+        except Exception as e:
+            print(f"❌ Error fetching customer {customer_qb_id} from QuickBooks: {str(e)}")
+            return None
+
+    def enhance_stub_customers(self) -> Tuple[int, int]:
+        """Replace stub customers with real data from QuickBooks"""
+        stub_customers = Customer.objects.filter(
+            company=self.company,
+            is_stub=True
+        )
+        
+        enhanced_count = 0
+        failed_count = 0
+        
+        print(f"🔄 Enhancing {stub_customers.count()} stub customers...")
+        
+        for stub_customer in stub_customers:
+            try:
+                real_customer_data = self.fetch_customer_from_qb(stub_customer.qb_customer_id)
+                if real_customer_data:
+                    # Update the stub customer with real data
+                    self.sync_customer_to_db(real_customer_data)
+                    enhanced_count += 1
+                    print(f"✅ Enhanced stub customer: {stub_customer.display_name}")
+                else:
+                    failed_count += 1
+                    print(f"❌ Failed to enhance stub customer: {stub_customer.display_name}")
+                    
+            except Exception as e:
+                failed_count += 1
+                print(f"❌ Error enhancing stub customer {stub_customer.qb_customer_id}: {str(e)}")
+        
+        print(f"✅ Stub customer enhancement completed: {enhanced_count} enhanced, {failed_count} failed")
+        return enhanced_count, failed_count
+
+    def sync_missing_customers(self, customer_qb_ids: List[str]) -> Tuple[int, int]:
+        """Sync multiple specific customers that are missing locally"""
+        success_count = 0
+        failed_count = 0
+        
+        print(f"🔄 Syncing {len(customer_qb_ids)} missing customers from QuickBooks...")
+        
+        for customer_qb_id in customer_qb_ids:
+            try:
+                if Customer.objects.filter(company=self.company, qb_customer_id=customer_qb_id).exists():
+                    print(f"⏭️  Customer {customer_qb_id} already exists locally, skipping...")
+                    continue
+                    
+                customer_data = self.fetch_customer_from_qb(customer_qb_id)
+                if customer_data:
+                    self.sync_customer_to_db(customer_data)
+                    success_count += 1
+                    print(f"✅ Synced customer: {customer_data.get('DisplayName', customer_qb_id)}")
+                else:
+                    failed_count += 1
+                    print(f"❌ Failed to sync customer: {customer_qb_id}")
+                    
+            except Exception as e:
+                failed_count += 1
+                print(f"❌ Error syncing customer {customer_qb_id}: {str(e)}")
+        
+        print(f"✅ Missing customer sync completed: {success_count} successful, {failed_count} failed")
+        return success_count, failed_count

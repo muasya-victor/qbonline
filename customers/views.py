@@ -1,11 +1,10 @@
-# customers/views.py
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.core.paginator import Paginator
 from django.db.models import Q
-from typing import Dict,Any
+from typing import Dict, Any
 
 from .models import Customer
 from .serializers import CustomerSerializer, CustomerCreateUpdateSerializer
@@ -58,6 +57,14 @@ class CustomerViewSet(viewsets.ModelViewSet):
             elif active_filter.lower() in ['false', '0', 'no']:
                 queryset = queryset.filter(active=False)
         
+        # Apply stub filter
+        stub_filter = self.request.query_params.get("is_stub")
+        if stub_filter is not None:
+            if stub_filter.lower() in ['true', '1', 'yes']:
+                queryset = queryset.filter(is_stub=True)
+            elif stub_filter.lower() in ['false', '0', 'no']:
+                queryset = queryset.filter(is_stub=False)
+        
         return queryset
 
     def get_serializer_class(self):
@@ -75,6 +82,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             queryset = self.get_queryset()
+            
+            # Get customer statistics
+            total_customers = queryset.count()
+            stub_customers = queryset.filter(is_stub=True).count()
+            active_customers = queryset.filter(active=True).count()
             
             # Pagination
             page = int(request.query_params.get('page', 1))
@@ -100,6 +112,12 @@ class CustomerViewSet(viewsets.ModelViewSet):
                     "name": active_company.name,
                     "qb_company_name": active_company.qb_company_name,
                     "currency_code": active_company.currency_code,
+                },
+                "stats": {
+                    "total_customers": total_customers,
+                    "stub_customers": stub_customers,
+                    "active_customers": active_customers,
+                    "real_customers": total_customers - stub_customers
                 }
             })
             
@@ -132,6 +150,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 qb_customer_id=qb_customer_data['Id'],
                 sync_token=qb_customer_data['SyncToken'],
                 raw_data=qb_customer_data,
+                is_stub=False,  # Explicitly mark as real customer
                 **serializer.validated_data
             )
             
@@ -171,6 +190,10 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 for field, value in serializer.validated_data.items():
                     if hasattr(customer, field):
                         setattr(customer, field, value)
+                
+                # If updating a stub customer, mark it as real
+                if customer.is_stub:
+                    customer.is_stub = False
                 
                 customer.save()
                 
@@ -231,13 +254,140 @@ class CustomerViewSet(viewsets.ModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             service = QuickBooksCustomerService(active_company)
-            synced_count = service.sync_all_customers()
+            success_count, failed_count = service.sync_all_customers()
+            
+            # Get stub customer count
+            stub_count = Customer.objects.filter(company=active_company, is_stub=True).count()
             
             return Response({
                 "success": True,
-                "message": f"✅ Synced {synced_count} customers successfully.",
-                "synced_count": synced_count
+                "message": f"✅ Synced {success_count} customers successfully. {failed_count} failed.",
+                "synced_count": success_count,
+                "failed_count": failed_count,
+                "stub_customers": stub_count
             }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=["post"], url_path="enhance-stubs", url_name="enhance-stub-customers")
+    def enhance_stub_customers(self, request):
+        """Enhance stub customers with real data from QuickBooks"""
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found. Please select a company first."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            service = QuickBooksCustomerService(active_company)
+            enhanced_count, failed_count = service.enhance_stub_customers()
+            
+            return Response({
+                "success": True,
+                "message": f"✅ Enhanced {enhanced_count} stub customers. {failed_count} failed.",
+                "enhanced_count": enhanced_count,
+                "failed_count": failed_count
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=["get"], url_path="stats", url_name="customer-stats")
+    def customer_statistics(self, request):
+        """Get customer statistics and quality metrics"""
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Customer stats
+            total_customers = Customer.objects.filter(company=active_company).count()
+            stub_customers = Customer.objects.filter(company=active_company, is_stub=True).count()
+            active_customers = Customer.objects.filter(company=active_company, active=True).count()
+            
+            # Invoice relationship stats
+            from invoices.models import Invoice
+            total_invoices = Invoice.objects.filter(company=active_company).count()
+            invoices_with_customers = Invoice.objects.filter(
+                company=active_company, 
+                customer__isnull=False
+            ).count()
+            invoices_with_stub_customers = Invoice.objects.filter(
+                company=active_company,
+                customer__is_stub=True
+            ).count()
+            
+            return Response({
+                "success": True,
+                "stats": {
+                    "customers": {
+                        "total": total_customers,
+                        "stub": stub_customers,
+                        "real": total_customers - stub_customers,
+                        "active": active_customers,
+                        "inactive": total_customers - active_customers,
+                        "quality_score": ((total_customers - stub_customers) / total_customers * 100) if total_customers > 0 else 0
+                    },
+                    "invoices": {
+                        "total": total_invoices,
+                        "with_customers": invoices_with_customers,
+                        "with_stub_customers": invoices_with_stub_customers,
+                        "without_customers": total_invoices - invoices_with_customers,
+                        "link_quality_score": (invoices_with_customers / total_invoices * 100) if total_invoices > 0 else 0
+                    }
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=["post"], url_path="enhance", url_name="enhance-customer")
+    def enhance_single_customer(self, request, pk=None):
+        """Enhance a single stub customer with real QuickBooks data"""
+        try:
+            customer = self.get_object()
+            
+            if not customer.is_stub:
+                return Response({
+                    "success": False,
+                    "error": "Customer is not a stub and doesn't need enhancement"
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            active_company = self.get_active_company()
+            service = QuickBooksCustomerService(active_company)
+            
+            # Fetch real customer data from QuickBooks
+            real_customer_data = service.fetch_customer_from_qb(customer.qb_customer_id)
+            if not real_customer_data:
+                return Response({
+                    "success": False,
+                    "error": "Customer not found in QuickBooks"
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Update the customer with real data
+            enhanced_customer = service.sync_customer_to_db(real_customer_data)
+            
+            response_serializer = CustomerSerializer(enhanced_customer)
+            
+            return Response({
+                "success": True,
+                "message": "Customer enhanced successfully with real QuickBooks data",
+                "customer": response_serializer.data
+            })
             
         except Exception as e:
             return Response({
@@ -253,9 +403,11 @@ class CustomerViewSet(viewsets.ModelViewSet):
             from invoices.serializers import InvoiceSerializer
             
             customer = self.get_object()
+            
+            # Get both directly linked invoices and invoices by QB reference
             invoices = Invoice.objects.filter(
-                company=customer.company,
-                customer_ref_value=customer.qb_customer_id
+                Q(company=customer.company) &
+                (Q(customer=customer) | Q(customer_ref_value=customer.qb_customer_id))
             ).order_by('-txn_date')
             
             page = int(request.query_params.get('page', 1))
@@ -269,6 +421,12 @@ class CustomerViewSet(viewsets.ModelViewSet):
             return Response({
                 "success": True,
                 "invoices": serializer.data,
+                "customer": {
+                    "id": customer.id,
+                    "display_name": customer.display_name,
+                    "is_stub": customer.is_stub,
+                    "qb_customer_id": customer.qb_customer_id
+                },
                 "pagination": {
                     "count": paginator.count,
                     "next": page_obj.next_page_number() if page_obj.has_next() else None,

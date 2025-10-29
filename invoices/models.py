@@ -2,6 +2,7 @@ from django.db import models
 from django.conf import settings
 from common.models import TimeStampModel
 from companies.models import Company
+from customers.models import Customer
 
 User = settings.AUTH_USER_MODEL
 
@@ -10,13 +11,23 @@ class Invoice(TimeStampModel):
     
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='invoices')
     qb_invoice_id = models.CharField(max_length=50, db_index=True)
+    
+    # Customer relationship
+    customer = models.ForeignKey(
+        Customer, 
+        on_delete=models.CASCADE, 
+        related_name='invoices',
+        null=True,
+        blank=True
+    )
+    
+    # Backup customer info
+    customer_ref_value = models.CharField(max_length=50, blank=True, null=True)
+    customer_name = models.CharField(max_length=255, blank=True, null=True)
+    
     doc_number = models.CharField(max_length=100, blank=True, null=True)
     txn_date = models.DateField()
     due_date = models.DateField(blank=True, null=True)
-    
-    # Customer info
-    customer_ref_value = models.CharField(max_length=50, blank=True, null=True)
-    customer_name = models.CharField(max_length=255, blank=True, null=True)
     
     # Amounts
     total_amt = models.DecimalField(max_digits=15, decimal_places=2)
@@ -35,7 +46,7 @@ class Invoice(TimeStampModel):
     customer_memo = models.TextField(blank=True, null=True)
     sync_token = models.CharField(max_length=50)
 
-    # Template info (QuickBooks CustomTemplateRef)
+    # Template info
     template_id = models.CharField(max_length=100, blank=True, null=True, help_text="QuickBooks template ID used for this invoice")
     template_name = models.CharField(max_length=255, blank=True, null=True, help_text="Name of the QuickBooks template")
     
@@ -47,12 +58,31 @@ class Invoice(TimeStampModel):
         indexes = [
             models.Index(fields=['company', 'txn_date']),
             models.Index(fields=['qb_invoice_id']),
+            models.Index(fields=['customer']),
             models.Index(fields=['customer_name']),
         ]
     
     def __str__(self):
         return f"Invoice {self.doc_number or self.qb_invoice_id} - {self.customer_name}"
 
+    @property
+    def linked_customer(self):
+        return self.customer
+
+    @property
+    def has_stub_customer(self):
+        """Check if this invoice is linked to a stub customer"""
+        return self.customer and getattr(self.customer, 'is_stub', False)
+
+    @property
+    def customer_quality(self):
+        """Get customer link quality"""
+        if not self.customer:
+            return "missing"
+        elif self.has_stub_customer:
+            return "stub"
+        else:
+            return "complete"
 
 class InvoiceLine(TimeStampModel):
     """Invoice line items"""

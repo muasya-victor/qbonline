@@ -1,10 +1,9 @@
-# customers/models.py
 from django.db import models
 from companies.models import Company
 from common.models import TimeStampModel
 
 class Customer(TimeStampModel):
-    """QuickBooks Customer model"""
+    """QuickBooks Customer model with stub tracking"""
     
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='customers')
     qb_customer_id = models.CharField(max_length=50, db_index=True)
@@ -52,6 +51,9 @@ class Customer(TimeStampModel):
     tax_code_ref_value = models.CharField(max_length=50, blank=True, null=True)
     tax_code_ref_name = models.CharField(max_length=255, blank=True, null=True)
     
+    # Stub tracking
+    is_stub = models.BooleanField(default=False, help_text="Whether this is a stub customer created from invoice context")
+    
     # Raw data
     raw_data = models.JSONField(blank=True, null=True)
 
@@ -61,12 +63,14 @@ class Customer(TimeStampModel):
             models.Index(fields=['company', 'display_name']),
             models.Index(fields=['company', 'email']),
             models.Index(fields=['company', 'active']),
+            models.Index(fields=['company', 'is_stub']),  # Add index for stub tracking
             models.Index(fields=['display_name']),
         ]
         ordering = ['display_name']
     
     def __str__(self):
-        return f"{self.display_name} - {self.company.name}"
+        stub_indicator = " [STUB]" if self.is_stub else ""
+        return f"{self.display_name}{stub_indicator} - {self.company.name}"
     
     @property
     def primary_contact(self):
@@ -100,3 +104,21 @@ class Customer(TimeStampModel):
             self.ship_addr_country
         ]
         return ", ".join(filter(None, addr_parts)) or "No shipping address"
+    
+    def enhance_from_quickbooks(self):
+        """Enhance stub customer with real data from QuickBooks"""
+        if not self.is_stub:
+            return self
+            
+        from .services import QuickBooksCustomerService
+        customer_service = QuickBooksCustomerService(self.company)
+        
+        try:
+            real_customer_data = customer_service.fetch_customer_from_qb(self.qb_customer_id)
+            if real_customer_data:
+                enhanced_customer = customer_service.sync_customer_to_db(real_customer_data)
+                return enhanced_customer
+        except Exception as e:
+            print(f"Failed to enhance stub customer {self.qb_customer_id}: {str(e)}")
+        
+        return self

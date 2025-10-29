@@ -9,7 +9,7 @@ class InvoiceLineInline(admin.TabularInline):
     model = InvoiceLine
     extra = 0
     readonly_fields = ('id', 'created_at', 'updated_at')
-    fields = ('line_num', 'item_name', 'description', 'qty', 'unit_price', 'amount')
+    fields = ('line_num', 'item_name', 'description', 'qty', 'unit_price', 'amount',)
 
     def has_add_permission(self, request, obj=None):
         return False
@@ -46,7 +46,7 @@ class InvoiceAdmin(admin.ModelAdmin):
             'fields': ('qb_invoice_id', 'doc_number', 'txn_date', 'due_date')
         }),
         ('Customer Information', {
-            'fields': ('customer_ref_value', 'customer_name')
+            'fields': ('customer_ref_value', 'customer_name', 'customer')
         }),
         ('Financial Information', {
             'fields': ('total_amt', 'balance')

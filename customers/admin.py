@@ -27,6 +27,6 @@ class CustomerAdmin(admin.ModelAdmin):
             'fields': ('balance', 'balance_with_jobs', 'active', 'taxable', 'tax_code_ref_value', 'tax_code_ref_name')
         }),
         ('Metadata', {
-            'fields': ('sync_token', 'notes', 'raw_data', 'created_at', 'updated_at')
+            'fields': ('sync_token', 'notes', 'raw_data')
         }),
     )

@@ -1,371 +1,293 @@
-# invoices/views.py
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.shortcuts import get_object_or_404
 from django.core.paginator import Paginator
-from django.db.models import Q, Prefetch
+from django.db.models import Q
+
 from .models import Invoice, InvoiceLine
-from .serializers import InvoiceSerializer, CompanyInfoSerializer, InvoiceLineSerializer
+from .serializers import InvoiceSerializer, InvoiceLineSerializer
 from .services import QuickBooksInvoiceService
-from companies.models import ActiveCompany
-from kra.models import KRAInvoiceSubmission
-from kra.services import KRAInvoiceService
-
-
-def get_active_company(user):
-    """Helper function to get active company with error handling"""
-    try:
-        active_company = ActiveCompany.objects.get(user=user)
-        return active_company.company
-    except ActiveCompany.DoesNotExist:
-        return None
+from companies.models import Company, ActiveCompany
 
 
 class InvoiceViewSet(viewsets.ModelViewSet):
-    """ViewSet for managing invoices with pagination support"""
-
-    serializer_class = InvoiceSerializer
+    """
+    API endpoint for managing invoices with smart customer sync.
+    """
     permission_classes = [IsAuthenticated]
 
+    def get_active_company(self):
+        """Get the user's active company"""
+        try:
+            active_company = ActiveCompany.objects.get(user=self.request.user)
+            return active_company.company
+        except ActiveCompany.DoesNotExist:
+            try:
+                membership = self.request.user.company_memberships.filter(is_default=True).first()
+                return membership.company if membership else None
+            except:
+                return None
+
     def get_queryset(self):
-        """Filter invoices by user's active company with optimized prefetching"""
-        active_company = get_active_company(self.request.user)
+        """Filter invoices by the user's active company"""
+        active_company = self.get_active_company()
         if not active_company:
             return Invoice.objects.none()
-
-        # Prefetch KRA submissions to avoid N+1 queries
-        kra_submissions_prefetch = Prefetch(
-            'kra_submissions',
-            queryset=KRAInvoiceSubmission.objects.select_related('company').order_by('-created_at')
-        )
-
-        queryset = Invoice.objects.filter(
-            company=active_company
-        ).select_related('company').prefetch_related(
-            'line_items',
-            kra_submissions_prefetch
-        ).order_by('-txn_date')
-
+        
+        queryset = Invoice.objects.filter(company=active_company).order_by('-txn_date')
+        
         # Apply search filter
-        search = self.request.query_params.get('search')
+        search = self.request.query_params.get("search")
         if search:
             queryset = queryset.filter(
                 Q(doc_number__icontains=search) |
-                Q(customer_name__icontains=search)
+                Q(customer_name__icontains=search) |
+                Q(customer_memo__icontains=search)
             )
-
+        
         # Apply status filter
-        status_filter = self.request.query_params.get('status')
-        if status_filter == 'paid':
-            queryset = queryset.filter(balance=0)
-        elif status_filter == 'unpaid':
-            queryset = queryset.filter(balance__gt=0)
-
-        # Apply KRA validation filter
-        kra_validated = self.request.query_params.get('kra_validated')
-        if kra_validated is not None:
-            if kra_validated.lower() == 'true':
-                # Invoices with at least one successful KRA submission
-                queryset = queryset.filter(
-                    kra_submissions__status__in=['success', 'signed']
-                ).distinct()
-            elif kra_validated.lower() == 'false':
-                # Invoices without successful KRA submissions
-                queryset = queryset.exclude(
-                    kra_submissions__status__in=['success', 'signed']
-                )
-
+        status_filter = self.request.query_params.get("status")
+        if status_filter:
+            if status_filter.lower() == 'paid':
+                queryset = queryset.filter(balance=0)
+            elif status_filter.lower() == 'unpaid':
+                queryset = queryset.filter(balance__gt=0)
+            elif status_filter.lower() == 'overdue':
+                from datetime import date
+                queryset = queryset.filter(balance__gt=0, due_date__lt=date.today())
+        
+        # Apply customer quality filter
+        customer_quality = self.request.query_params.get("customer_quality")
+        if customer_quality:
+            if customer_quality == 'missing':
+                queryset = queryset.filter(customer__isnull=True)
+            elif customer_quality == 'stub':
+                queryset = queryset.filter(customer__is_stub=True)
+            elif customer_quality == 'complete':
+                queryset = queryset.filter(customer__isnull=False, customer__is_stub=False)
+        
         return queryset
 
+    def get_serializer_class(self):
+        return InvoiceSerializer
+
     def list(self, request, *args, **kwargs):
-        """List invoices with pagination and company info"""
-        active_company = get_active_company(request.user)
-        if not active_company:
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found. Please select a company first."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            queryset = self.get_queryset()
+            
+            # Get invoice statistics
+            total_invoices = queryset.count()
+            paid_invoices = queryset.filter(balance=0).count()
+            unpaid_invoices = queryset.filter(balance__gt=0).count()
+            
+            # Customer link statistics
+            invoices_with_customers = queryset.filter(customer__isnull=False).count()
+            invoices_with_stub_customers = queryset.filter(customer__is_stub=True).count()
+            
+            # Pagination
+            page = int(request.query_params.get('page', 1))
+            page_size = int(request.query_params.get('page_size', 20))
+            
+            paginator = Paginator(queryset, page_size)
+            page_obj = paginator.get_page(page)
+            
+            serializer = self.get_serializer(page_obj, many=True)
+            
             return Response({
-                'success': False,
-                'error': 'No active company selected',
-                'message': 'Please select a company first'
-            }, status=status.HTTP_400_BAD_REQUEST)
+                "success": True,
+                "invoices": serializer.data,
+                "pagination": {
+                    "count": paginator.count,
+                    "next": page_obj.next_page_number() if page_obj.has_next() else None,
+                    "previous": page_obj.previous_page_number() if page_obj.has_previous() else None,
+                    "page_size": page_size,
+                    "current_page": page,
+                    "total_pages": paginator.num_pages
+                },
+                "company_info": {
+                    "name": active_company.name,
+                    "qb_company_name": active_company.qb_company_name,
+                    "currency_code": active_company.currency_code,
+                    "realm_id": active_company.realm_id,
+                },
+                "stats": {
+                    "total_invoices": total_invoices,
+                    "paid_invoices": paid_invoices,
+                    "unpaid_invoices": unpaid_invoices,
+                    "invoices_with_customers": invoices_with_customers,
+                    "invoices_with_stub_customers": invoices_with_stub_customers,
+                    "invoices_without_customers": total_invoices - invoices_with_customers,
+                    "customer_link_quality": (invoices_with_customers / total_invoices * 100) if total_invoices > 0 else 0
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        queryset = self.get_queryset()
+    @action(detail=False, methods=["post"], url_path="sync-from-quickbooks", url_name="sync-invoices")
+    def sync_from_quickbooks(self, request):
+        """Sync invoices from QuickBooks (legacy method)"""
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Get pagination parameters
-        page = int(request.query_params.get('page', 1))
-        page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            service = QuickBooksInvoiceService(active_company)
+            success_count, failed_count = service.sync_all_invoices()
+            
+            return Response({
+                "success": True,
+                "message": f"Synced {success_count} invoices successfully. {failed_count} failed.",
+                "synced_count": success_count,
+                "failed_count": failed_count
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Apply pagination
-        paginator = Paginator(queryset, page_size)
-        page_obj = paginator.get_page(page)
+    @action(detail=False, methods=["post"], url_path="smart-sync", url_name="smart-sync-invoices")
+    def smart_sync_invoices(self, request):
+        """Smart sync invoices with automatic customer resolution"""
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Serialize the invoices
-        serializer = self.get_serializer(page_obj.object_list, many=True)
+            service = QuickBooksInvoiceService(active_company)
+            success_count, failed_count, stub_customers_created = service.sync_all_invoices()
+            
+            return Response({
+                "success": True,
+                "message": f"Smart sync completed: {success_count} invoices processed, {stub_customers_created} stub customers created.",
+                "synced_count": success_count,
+                "failed_count": failed_count,
+                "stub_customers_created": stub_customers_created
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        # Serialize company info
-        company_serializer = CompanyInfoSerializer(active_company)
 
-        # Build pagination info
-        pagination_info = {
-            'count': paginator.count,
-            'next': page_obj.next_page_number() if page_obj.has_next() else None,
-            'previous': page_obj.previous_page_number() if page_obj.has_previous() else None,
-            'page_size': page_size,
-            'current_page': page,
-            'total_pages': paginator.num_pages
-        }
+    @action(detail=False, methods=["get"], url_path="analyze-customer-links", url_name="analyze-customer-links")
+    def analyze_customer_links(self, request):
+        """Analyze customer link quality for invoices"""
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Add KRA submission stats
-        kra_stats = {
-            'total_submissions': KRAInvoiceSubmission.objects.filter(company=active_company).count(),
-            'successful_submissions': KRAInvoiceSubmission.objects.filter(
-                company=active_company, 
-                status__in=['success', 'signed']
-            ).count(),
-            'failed_submissions': KRAInvoiceSubmission.objects.filter(
-                company=active_company, 
-                status='failed'
-            ).count(),
-            'pending_submissions': KRAInvoiceSubmission.objects.filter(
-                company=active_company, 
-                status__in=['pending', 'submitted']
-            ).count()
-        }
+            # Get all invoices for the company
+            invoices = Invoice.objects.filter(company=active_company)
+            total_invoices = invoices.count()
+            
+            # Calculate customer link statistics
+            invoices_with_customers = invoices.filter(customer__isnull=False).count()
+            invoices_with_stub_customers = invoices.filter(customer__is_stub=True).count()
+            
+            # Get stub customers count
+            from customers.models import Customer
+            stub_customers = Customer.objects.filter(company=active_company, is_stub=True).count()
+            
+            quality_score = (invoices_with_customers / total_invoices * 100) if total_invoices > 0 else 0
 
-        return Response({
-            'success': True,
-            'invoices': serializer.data,
-            'pagination': pagination_info,
-            'company_info': company_serializer.data,
-            'kra_stats': kra_stats
-        })
-
-    def retrieve(self, request, *args, **kwargs):
-        """Retrieve a single invoice with detailed information"""
-        instance = self.get_object()
-        serializer = self.get_serializer(instance)
+            return Response({
+                "success": True,
+                "analysis": {
+                    "total_invoices": total_invoices,
+                    "invoices_with_customers": invoices_with_customers,
+                    "invoices_without_customers": total_invoices - invoices_with_customers,
+                    "stub_customers": stub_customers,
+                    "invoices_with_stub_customers": invoices_with_stub_customers,
+                    "quality_score": quality_score
+                }
+            })
+            
+        except Exception as e:
+            print(f"Error in analyze_customer_links: {str(e)}")
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # Get additional KRA submission details
-        kra_submissions = instance.kra_submissions.all().order_by('-created_at')
-        kra_serializer = KRASubmissionSerializer(kra_submissions, many=True)
-        
-        response_data = serializer.data
-        response_data['kra_submissions_detail'] = kra_serializer.data
-        response_data['kra_submissions_count'] = kra_submissions.count()
-        
-        return Response({
-            'success': True,
-            'invoice': response_data
-        })
 
-    @action(detail=True, methods=['get'])
-    def kra_submissions(self, request, pk=None):
-        """Get all KRA submissions for a specific invoice"""
-        invoice = self.get_object()
-        submissions = invoice.kra_submissions.all().order_by('-created_at')
-        
-        serializer = KRASubmissionSerializer(submissions, many=True)
-        
-        return Response({
-            'success': True,
-            'invoice_id': str(invoice.id),
-            'invoice_number': invoice.doc_number,
-            'customer_name': invoice.customer_name,
-            'kra_submissions': serializer.data,
-            'total_submissions': submissions.count(),
-            'latest_submission': KRASubmissionSerializer(submissions.first()).data if submissions.exists() else None
-        })
+    @action(detail=False, methods=["post"], url_path="enhance-stub-customers", url_name="enhance-stub-customers")
+    def enhance_stub_customers(self, request):
+        """Enhance stub customers with real QuickBooks data"""
+        try:
+            active_company = self.get_active_company()
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
 
-    @action(detail=True, methods=['post'])
-    def submit_to_kra(self, request, pk=None):
-        """Submit a specific invoice to KRA"""
+            from customers.services import QuickBooksCustomerService
+            customer_service = QuickBooksCustomerService(active_company)
+            enhanced_count, failed_count = customer_service.enhance_stub_customers()
+            
+            return Response({
+                "success": True,
+                "message": f"Enhanced {enhanced_count} stub customers. {failed_count} failed.",
+                "enhanced_count": enhanced_count,
+                "failed_count": failed_count
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=["get"], url_path="lines", url_name="invoice-lines")
+    def invoice_lines(self, request, pk=None):
+        """Get line items for a specific invoice"""
         try:
             invoice = self.get_object()
-            company = invoice.company
+            lines = invoice.line_items.all().order_by('line_num')
             
-            # Verify user has access to this company
-            if not request.user.company_memberships.filter(company=company).exists():
-                return Response({
-                    'success': False,
-                    'error': 'You do not have access to this company'
-                }, status=status.HTTP_403_FORBIDDEN)
+            serializer = InvoiceLineSerializer(lines, many=True)
             
-            # Check if KRA config exists
-            if not hasattr(company, 'kra_config'):
-                return Response({
-                    'success': False,
-                    'error': 'KRA configuration not found for this company'
-                }, status=status.HTTP_400_BADDEN_REQUEST)
-            
-            # Submit to KRA
-            kra_service = KRAInvoiceService(company.id)
-            result = kra_service.submit_to_kra(invoice.id)
-            
-            if result['success']:
-                submission = result['submission']
-                response_data = {
-                    'success': True,
-                    'message': 'Invoice successfully submitted to KRA',
-                    'submission_id': str(submission.id),
-                    'kra_invoice_number': submission.kra_invoice_number,
-                    'receipt_signature': submission.receipt_signature,
-                    'qr_code_data': submission.qr_code_data,
-                    'status': submission.status,
-                    'kra_response': result.get('kra_response', {})
+            return Response({
+                "success": True,
+                "lines": serializer.data,
+                "invoice": {
+                    "id": invoice.id,
+                    "doc_number": invoice.doc_number,
+                    "customer_name": invoice.customer_name
                 }
-                return Response(response_data, status=status.HTTP_200_OK)
-            else:
-                return Response({
-                    'success': False, 
-                    'error': result['error']
-                }, status=status.HTTP_400_BAD_REQUEST)
-                
-        except Exception as e:
-            return Response({
-                'success': False, 
-                'error': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=True, methods=['get'])
-    def line_items(self, request, pk=None):
-        """Get all line items for a specific invoice"""
-        invoice = self.get_object()
-        line_items = invoice.line_items.all().order_by('line_num')
-        
-        serializer = InvoiceLineSerializer(line_items, many=True)
-        
-        return Response({
-            'success': True,
-            'invoice_id': str(invoice.id),
-            'invoice_number': invoice.doc_number,
-            'line_items': serializer.data,
-            'total_line_items': line_items.count(),
-            'total_amount': float(invoice.total_amt),
-            'subtotal': float(invoice.subtotal),
-            'tax_total': float(invoice.tax_total)
-        })
-
-    @action(detail=False, methods=['post'])
-    def sync_from_quickbooks(self, request):
-        """Sync invoices from QuickBooks API"""
-        try:
-            active_company_record = ActiveCompany.objects.select_related("company").filter(user=request.user).first()
-
-            if not active_company_record:
-                return Response({
-                    'success': False,
-                    'error': 'No active company selected',
-                    'message': 'Please select or set an active company first.'
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            active_company = active_company_record.company
-
-            # Proceed with sync
-            service = QuickBooksInvoiceService(active_company)
-            synced_count = service.sync_all_invoices()
-
-            company_serializer = CompanyInfoSerializer(active_company)
-
-            return Response({
-                'success': True,
-                'message': f'Successfully synced invoices for {active_company.name}',
-                'synced_count': synced_count,
-                'company_info': company_serializer.data
             })
-
-        except ValueError as e:
-            return Response({
-                'success': False,
-                'error': str(e),
-                'message': 'Sync validation failed'
-            }, status=status.HTTP_400_BAD_REQUEST)
+            
         except Exception as e:
             return Response({
-                'success': False,
-                'error': f'Sync failed: {str(e)}',
-                'message': 'An error occurred during sync'
+                "success": False,
+                "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @action(detail=False, methods=['get'])
-    def stats(self, request):
-        """Get invoice statistics for the active company"""
-        active_company = get_active_company(request.user)
-        if not active_company:
-            return Response({
-                'success': False,
-                'error': 'No active company selected'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Invoice statistics
-        total_invoices = Invoice.objects.filter(company=active_company).count()
-        paid_invoices = Invoice.objects.filter(company=active_company, balance=0).count()
-        unpaid_invoices = Invoice.objects.filter(company=active_company, balance__gt=0).count()
-        
-        # Amount statistics
-        total_amount = Invoice.objects.filter(company=active_company).aggregate(
-            total=Sum('total_amt')
-        )['total'] or 0
-        outstanding_balance = Invoice.objects.filter(company=active_company).aggregate(
-            total=Sum('balance')
-        )['total'] or 0
-        
-        # KRA statistics
-        kra_validated_invoices = Invoice.objects.filter(
-            company=active_company,
-            kra_submissions__status__in=['success', 'signed']
-        ).distinct().count()
-
-        return Response({
-            'success': True,
-            'stats': {
-                'total_invoices': total_invoices,
-                'paid_invoices': paid_invoices,
-                'unpaid_invoices': unpaid_invoices,
-                'total_amount': float(total_amount),
-                'outstanding_balance': float(outstanding_balance),
-                'kra_validated_invoices': kra_validated_invoices,
-                'validation_rate': round((kra_validated_invoices / total_invoices * 100), 2) if total_invoices > 0 else 0
-            },
-            'company': active_company.name
-        })
-
-    @action(detail=False, methods=['get'])
-    def recent(self, request):
-        """Get recent invoices (last 10)"""
-        active_company = get_active_company(request.user)
-        if not active_company:
-            return Response({
-                'success': False,
-                'error': 'No active company selected'
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        recent_invoices = Invoice.objects.filter(
-            company=active_company
-        ).select_related('company').prefetch_related(
-            Prefetch('kra_submissions', queryset=KRAInvoiceSubmission.objects.order_by('-created_at'))
-        ).order_by('-created_at')[:10]
-
-        serializer = self.get_serializer(recent_invoices, many=True)
-
-        return Response({
-            'success': True,
-            'invoices': serializer.data,
-            'total_count': recent_invoices.count()
-        })
-
-    def create(self, request, *args, **kwargs):
-        """Create is not allowed via API - invoices come from QuickBooks"""
-        return Response({
-            'success': False,
-            'error': 'Invoices can only be created via QuickBooks sync'
-        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
-
-    def update(self, request, *args, **kwargs):
-        """Update is not allowed via API - invoices come from QuickBooks"""
-        return Response({
-            'success': False,
-            'error': 'Invoices can only be updated via QuickBooks sync'
-        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
     def destroy(self, request, *args, **kwargs):
         """Delete is not allowed via API - invoices come from QuickBooks"""
@@ -492,3 +414,4 @@ def invoice_detail(request, invoice_id):
 
     except Invoice.DoesNotExist:
         return HttpResponse("Invoice not found", status=404)
+    
