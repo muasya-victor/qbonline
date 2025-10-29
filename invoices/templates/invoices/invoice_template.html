@@ -692,17 +692,26 @@
                 <div class="qr-section">
                     <div class="qr-container">
                         <div class="qr-code">
-                            <!-- Use the URL directly since it's already a QR code image URL -->
-                            <img src="{{ kra_submission.qr_code_data }}" 
+                            {% if qr_code %}
+                            <!-- Use the generated QR code (base64) -->
+                            <img src="data:image/png;base64,{{ qr_code }}" 
                                 alt="KRA QR Code" 
-                                class="qr-img"
-                                onerror="this.style.display='none'; console.log('QR code image failed to load')">
+                                class="qr-img">
+                            {% else %}
+                            <!-- Fallback: Show message that QR code is available but couldn't be generated -->
+                            <div style="width: 6rem; height: 6rem; background: #f3f4f6; display: flex; align-items: center; justify-content: center; border: 1px dashed #d1d5db;">
+                                <span style="font-size: 0.75rem; text-align: center; color: #6b7280;">QR Code<br>Available</span>
+                            </div>
+                            {% endif %}
                         </div>
                         <div class="qr-info">
                             <h3>KRA Submission</h3>
                             <div class="qr-details">
-                                Invoice Number: {{ kra_submission.kra_invoice_number }}<br>
-                                Status: <span class="font-semibold">{{ kra_submission.status|title }}</span><br>
+                                KRA Invoice Number: {{ kra_submission.kra_invoice_number }}<br>
+                                Original Invoice: {{ kra_submission.trd_invoice_no }}<br>
+                                Status: <span class="font-semibold" style="color: {% if kra_submission.status == 'success' %}#10b981{% else %}#ef4444{% endif %};">
+                                    {{ kra_submission.status|title }}
+                                </span><br>
                                 Receipt Signature: {{ kra_submission.receipt_signature }}<br>
                                 Submitted: {{ kra_submission.created_at|date:"F j, Y" }}
                             </div>
@@ -712,7 +721,7 @@
                                 target="_blank" 
                                 rel="noopener noreferrer"
                                 style="color: #2563eb; text-decoration: underline; font-size: 0.875rem;">
-                                    Open KRA Receipt
+                                    View KRA Receipt Online
                                 </a>
                             </div>
                         </div>

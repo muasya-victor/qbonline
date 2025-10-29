@@ -374,7 +374,6 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             'error': 'Invoices can only be deleted via QuickBooks sync'
         }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
     
-
 # views.py
 import os
 import qrcode
@@ -382,23 +381,14 @@ from io import BytesIO
 from django.http import HttpResponse
 from django.template.loader import render_to_string
 from django.conf import settings
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter, A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.units import inch
-from reportlab.lib import colors
 from weasyprint import HTML
 import tempfile
 from django.views.decorators.csrf import csrf_exempt
-from django.contrib.auth.decorators import login_required
-from django.utils.decorators import method_decorator
 from django.shortcuts import render
 from django.http import HttpResponse
-
+import base64
 
 @csrf_exempt
-# In your views.py - remove the QR code generation part
 def generate_invoice_pdf(request, invoice_id):
     """Generate PDF version of invoice"""
     try:
@@ -415,7 +405,32 @@ def generate_invoice_pdf(request, invoice_id):
             'company': company,
             'kra_submission': kra_submission,
         }
-    
+        
+        # Generate QR code from the URL if KRA data exists
+        if kra_submission and kra_submission.qr_code_data:
+            try:
+                # Generate QR code from the URL
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(kra_submission.qr_code_data)
+                qr.make(fit=True)
+                
+                qr_img = qr.make_image(fill_color="black", back_color="white")
+                buffer = BytesIO()
+                qr_img.save(buffer, format='PNG')
+                buffer.seek(0)
+                
+                # Convert to base64 for embedding in HTML
+                qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+                context['qr_code'] = qr_code_base64
+                
+            except Exception as e:
+                print(f"Error generating QR code: {e}")
+                # If QR generation fails, we'll still have the URL for the link
         
         html_string = render_to_string('invoices/invoice_template.html', context)
         
@@ -429,7 +444,6 @@ def generate_invoice_pdf(request, invoice_id):
         
     except Invoice.DoesNotExist:
         return HttpResponse("Invoice not found", status=404)
-
 
 @csrf_exempt
 def invoice_detail(request, invoice_id):
@@ -445,6 +459,29 @@ def invoice_detail(request, invoice_id):
             'company': company,
             'kra_submission': kra_submission,
         }
+
+        # Generate QR code for HTML view too
+        if kra_submission and kra_submission.qr_code_data:
+            try:
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(kra_submission.qr_code_data)
+                qr.make(fit=True)
+                
+                qr_img = qr.make_image(fill_color="black", back_color="white")
+                buffer = BytesIO()
+                qr_img.save(buffer, format='PNG')
+                buffer.seek(0)
+                
+                qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+                context['qr_code'] = qr_code_base64
+                
+            except Exception as e:
+                print(f"Error generating QR code: {e}")
 
         return render(request, 'invoices/invoice_template.html', context)
 
