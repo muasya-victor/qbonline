@@ -398,34 +398,35 @@ from django.http import HttpResponse
 
 
 @csrf_exempt
+# In your views.py - remove the QR code generation part
 def generate_invoice_pdf(request, invoice_id):
-    """Generate PDF version of invoice (no login required)"""
+    """Generate PDF version of invoice"""
     try:
         invoice = Invoice.objects.get(id=invoice_id)
         company = invoice.company
-
-        kra_submission = getattr(invoice, 'kra_submission', None)
-
+        
+        # Get KRA submission if exists
+        kra_submission = None
+        if hasattr(invoice, 'kra_submission'):
+            kra_submission = invoice.kra_submission
+        
         context = {
             'invoice': invoice,
             'company': company,
             'kra_submission': kra_submission,
         }
-
-        # Generate QR code if KRA data exists
-        if kra_submission and kra_submission.qr_code_data:
-            from invoices.utils import generate_qr_code_base64
-            context['qr_code'] = generate_qr_code_base64(kra_submission.qr_code_data)
-
+    
+        
         html_string = render_to_string('invoices/invoice_template.html', context)
-
-        from weasyprint import HTML
+        
+        # Create PDF using WeasyPrint
         response = HttpResponse(content_type='application/pdf')
         response['Content-Disposition'] = f'attachment; filename="invoice_{invoice.doc_number or invoice.qb_invoice_id}.pdf"'
-
+        
         HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf(response)
+        
         return response
-
+        
     except Invoice.DoesNotExist:
         return HttpResponse("Invoice not found", status=404)
 
