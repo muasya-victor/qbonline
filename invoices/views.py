@@ -388,6 +388,7 @@ from django.shortcuts import render
 from django.http import HttpResponse
 import base64
 
+# views.py
 @csrf_exempt
 def generate_invoice_pdf(request, invoice_id):
     """Generate PDF version of invoice"""
@@ -395,10 +396,15 @@ def generate_invoice_pdf(request, invoice_id):
         invoice = Invoice.objects.get(id=invoice_id)
         company = invoice.company
         
-        # Get KRA submission if exists
-        kra_submission = None
-        if hasattr(invoice, 'kra_submission'):
-            kra_submission = invoice.kra_submission
+        # Get KRA submission - use the related_name 'kra_submissions'
+        kra_submission = invoice.kra_submissions.first()  # Get the most recent submission
+        
+        print(f"Invoice: {invoice.id}")
+        print(f"KRA Submission found: {kra_submission is not None}")
+        if kra_submission:
+            print(f"KRA Submission ID: {kra_submission.id}")
+            print(f"KRA Status: {kra_submission.status}")
+            print(f"QR Code Data: {kra_submission.qr_code_data}")
         
         context = {
             'invoice': invoice,
@@ -406,10 +412,9 @@ def generate_invoice_pdf(request, invoice_id):
             'kra_submission': kra_submission,
         }
         
-        # Generate QR code from the URL if KRA data exists
+        # Generate QR code if KRA data exists
         if kra_submission and kra_submission.qr_code_data:
             try:
-                # Generate QR code from the URL
                 qr = qrcode.QRCode(
                     version=1,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -424,13 +429,12 @@ def generate_invoice_pdf(request, invoice_id):
                 qr_img.save(buffer, format='PNG')
                 buffer.seek(0)
                 
-                # Convert to base64 for embedding in HTML
                 qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
                 context['qr_code'] = qr_code_base64
+                print(f"QR code generated successfully")
                 
             except Exception as e:
                 print(f"Error generating QR code: {e}")
-                # If QR generation fails, we'll still have the URL for the link
         
         html_string = render_to_string('invoices/invoice_template.html', context)
         
@@ -452,7 +456,8 @@ def invoice_detail(request, invoice_id):
         invoice = Invoice.objects.get(id=invoice_id)
         company = invoice.company
 
-        kra_submission = getattr(invoice, 'kra_submission', None)
+        # Get KRA submission - use the related_name 'kra_submissions'
+        kra_submission = invoice.kra_submissions.first()  # Get the most recent submission
 
         context = {
             'invoice': invoice,
