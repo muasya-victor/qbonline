@@ -3,6 +3,19 @@ from rest_framework import serializers
 from .models import Invoice, InvoiceLine
 from companies.models import Company
 from kra.models import KRAInvoiceSubmission
+from customers.models import Customer  
+
+class CustomerSerializer(serializers.ModelSerializer):
+    """Serializer for customer information inside invoice"""
+
+    class Meta:
+        model = Customer
+        fields = [
+            'id', 'display_name', 'email', 'phone', 'mobile', 'kra_pin',
+            'company_name', 'billing_address', 'shipping_address',
+            'is_stub', 'active', 'taxable', 'tax_code_ref_name'
+        ]
+
 
 class InvoiceLineSerializer(serializers.ModelSerializer):
     """Serializer for invoice line items with enhanced tax fields"""
@@ -35,6 +48,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
     currency_code = serializers.CharField(source='company.currency_code', read_only=True)
     status = serializers.SerializerMethodField()
     is_kra_validated = serializers.SerializerMethodField()
+    customer = CustomerSerializer(read_only=True)
     
     # New field for KRA submissions
     # kra_submissions = KRASubmissionSerializer(many=True, read_only=True)
@@ -51,7 +65,7 @@ class InvoiceSerializer(serializers.ModelSerializer):
             'private_note', 'customer_memo', 'currency_code', 'status', 
             'line_items', 'is_kra_validated', 'kra_submission',
             'template_id', 'template_name', 'sync_token', 'raw_data',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at', 'customer'
         ]
         read_only_fields = ['id', 'created_at', 'updated_at']
 

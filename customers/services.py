@@ -322,7 +322,7 @@ class QuickBooksCustomerService:
             "sparse": True  # required for partial updates
         }
 
-        # Names and company
+        # Only include fields that are being updated
         if 'given_name' in update_data:
             qb_customer["GivenName"] = update_data.get('given_name') or ""
         if 'family_name' in update_data:
@@ -330,6 +330,9 @@ class QuickBooksCustomerService:
         if 'company_name' in update_data:
             qb_customer["CompanyName"] = update_data.get('company_name') or ""
 
+        # For KRA PIN updates, we don't send to QuickBooks since it's a custom field
+        # Only send the fields that QuickBooks expects
+        
         # Status fields
         if 'active' in update_data:
             qb_customer["Active"] = update_data['active']
@@ -352,7 +355,7 @@ class QuickBooksCustomerService:
         if 'website' in update_data:
             qb_customer["WebAddr"] = {"URI": update_data.get('website') or ""}
 
-        # Billing address update
+        # Billing address update - only if address fields are being updated
         bill_addr_updated = any(field in update_data for field in [
             'bill_addr_line1', 'bill_addr_line2', 'bill_addr_city',
             'bill_addr_state', 'bill_addr_postal_code', 'bill_addr_country'
@@ -373,7 +376,7 @@ class QuickBooksCustomerService:
                 bill_addr["Country"] = update_data.get('bill_addr_country') or ""
             qb_customer["BillAddr"] = bill_addr
 
-        # Shipping address update
+        # Shipping address update - only if address fields are being updated
         ship_addr_updated = any(field in update_data for field in [
             'ship_addr_line1', 'ship_addr_line2', 'ship_addr_city',
             'ship_addr_state', 'ship_addr_postal_code', 'ship_addr_country'
@@ -445,7 +448,6 @@ class QuickBooksCustomerService:
         except Exception as e:
             print(f"❌ Error updating customer: {str(e)}")
             raise
-
     # ---------------------------
     # Helper to update local customer from QB response
     # ---------------------------

@@ -1,12 +1,26 @@
 from django.db import models
 from companies.models import Company
 from common.models import TimeStampModel
+from django.core.validators import RegexValidator
+
+kra_pin_validator = RegexValidator(
+    regex=r'^[A-Z]\d{9}[A-Z]$',
+    message="KRA PIN must be in the format A000000000B (one letter, nine digits, one letter)."
+)
 
 class Customer(TimeStampModel):
     """QuickBooks Customer model with stub tracking"""
     
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='customers')
     qb_customer_id = models.CharField(max_length=50, db_index=True)
+    
+    kra_pin = models.CharField(
+        max_length=11,  
+        validators=[kra_pin_validator],
+        unique=True,
+        blank=True,
+        null=True
+    )
     
     # Basic Info
     display_name = models.CharField(max_length=255, db_index=True)

@@ -7,7 +7,7 @@ from django.db.models import Q
 from typing import Dict, Any
 
 from .models import Customer
-from .serializers import CustomerSerializer, CustomerCreateUpdateSerializer
+from .serializers import CustomerSerializer, CustomerCreateUpdateSerializer  # Import from serializers.py
 from .services import QuickBooksCustomerService
 from companies.models import Company, ActiveCompany
 
@@ -169,7 +169,7 @@ class CustomerViewSet(viewsets.ModelViewSet):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def update(self, request, *args, **kwargs):
-        """Update customer and sync to QuickBooks"""
+        """Update customer - sync to QuickBooks only for relevant fields"""
         try:
             customer = self.get_object()
             active_company = self.get_active_company()
@@ -177,40 +177,68 @@ class CustomerViewSet(viewsets.ModelViewSet):
             serializer = self.get_serializer(customer, data=request.data, partial=kwargs.get('partial', False))
             serializer.is_valid(raise_exception=True)
             
-            # Update customer in QuickBooks first
-            service = QuickBooksCustomerService(active_company)
+            # Check if this is just a KRA PIN update (which doesn't need QuickBooks sync)
+            update_data = serializer.validated_data
+            is_kra_pin_only_update = (
+                len(update_data) == 1 and 
+                'kra_pin' in update_data and
+                all(key not in update_data for key in [
+                    'display_name', 'given_name', 'family_name', 'company_name',
+                    'email', 'phone', 'mobile', 'fax', 'website', 'active', 'notes',
+                    'taxable', 'tax_code_ref_value', 'bill_addr_line1', 'bill_addr_line2',
+                    'bill_addr_city', 'bill_addr_state', 'bill_addr_postal_code', 'bill_addr_country',
+                    'ship_addr_line1', 'ship_addr_line2', 'ship_addr_city', 'ship_addr_state',
+                    'ship_addr_postal_code', 'ship_addr_country'
+                ])
+            )
             
-            try:
-                qb_customer_data = service.update_customer_in_qb(customer, serializer.validated_data)
-                
-                # Update local customer with data from QuickBooks response
-                customer = self.update_customer_from_qb_data(customer, qb_customer_data)
-                
-                # Also update with the form data that might not be in QB response
-                for field, value in serializer.validated_data.items():
-                    if hasattr(customer, field):
-                        setattr(customer, field, value)
-                
-                # If updating a stub customer, mark it as real
-                if customer.is_stub:
-                    customer.is_stub = False
-                
+            if is_kra_pin_only_update:
+                # Just update KRA PIN locally (no QuickBooks sync needed)
+                customer.kra_pin = update_data['kra_pin']
                 customer.save()
                 
-            except Exception as qb_error:
+                response_serializer = CustomerSerializer(customer)
+                
                 return Response({
-                    "success": False,
-                    "error": f"QuickBooks update failed: {str(qb_error)}"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
-            response_serializer = CustomerSerializer(customer)
-            
-            return Response({
-                "success": True,
-                "message": "Customer updated successfully and synced to QuickBooks",
-                "customer": response_serializer.data
-            })
-            
+                    "success": True,
+                    "message": "KRA PIN updated successfully",
+                    "customer": response_serializer.data
+                })
+            else:
+                # Update customer in QuickBooks for other fields
+                service = QuickBooksCustomerService(active_company)
+                
+                try:
+                    qb_customer_data = service.update_customer_in_qb(customer, update_data)
+                    
+                    # Update local customer with data from QuickBooks response
+                    customer = self.update_customer_from_qb_data(customer, qb_customer_data)
+                    
+                    # Also update with the form data that might not be in QB response
+                    for field, value in update_data.items():
+                        if hasattr(customer, field):
+                            setattr(customer, field, value)
+                    
+                    # If updating a stub customer, mark it as real
+                    if customer.is_stub:
+                        customer.is_stub = False
+                    
+                    customer.save()
+                    
+                except Exception as qb_error:
+                    return Response({
+                        "success": False,
+                        "error": f"QuickBooks update failed: {str(qb_error)}"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                response_serializer = CustomerSerializer(customer)
+                
+                return Response({
+                    "success": True,
+                    "message": "Customer updated successfully and synced to QuickBooks",
+                    "customer": response_serializer.data
+                })
+                
         except Exception as e:
             return Response({
                 "success": False,
@@ -435,6 +463,43 @@ class CustomerViewSet(viewsets.ModelViewSet):
                     "current_page": page,
                     "total_pages": paginator.num_pages
                 }
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=True, methods=["patch"], url_path="update-kra-pin", url_name="update-kra-pin")
+    def update_kra_pin(self, request, pk=None):
+        """Update only the KRA PIN for a customer (no QuickBooks sync)"""
+        try:
+            customer = self.get_object()
+            
+            kra_pin = request.data.get('kra_pin')
+            
+            # Validate KRA PIN format
+            import re
+            if kra_pin:
+                kra_pin = kra_pin.upper().strip()
+                pattern = r'^[A-Z]{1}\d{9}[A-Z]{1}$'
+                if not re.match(pattern, kra_pin):
+                    return Response({
+                        "success": False,
+                        "error": "KRA PIN must be in the format A000000000B (one letter, nine digits, one letter)"
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update the KRA PIN
+            customer.kra_pin = kra_pin
+            customer.save()
+            
+            response_serializer = CustomerSerializer(customer)
+            
+            return Response({
+                "success": True,
+                "message": "KRA PIN updated successfully",
+                "customer": response_serializer.data
             })
             
         except Exception as e:

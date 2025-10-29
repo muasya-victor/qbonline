@@ -93,6 +93,13 @@ class KRAInvoiceService:
         # Calculate tax summary
         tax_summary = self.calculate_tax_summary(invoice.line_items.all())
         
+        # Get customer KRA PIN - check both customer relationship and customer_ref_value
+        customer_kra_pin = ""
+        if invoice.customer and invoice.customer.kra_pin:
+            customer_kra_pin = invoice.customer.kra_pin
+        elif hasattr(invoice, 'kra_pin') and invoice.kra_pin:
+            customer_kra_pin = invoice.kra_pin
+        
         # Build item list
         item_list = []
         for idx, line_item in enumerate(invoice.line_items.all(), 1):
@@ -151,7 +158,7 @@ class KRAInvoiceService:
             "trdInvcNo": invoice.doc_number or f"INV-{kra_invoice_number}",
             "invcNo": kra_invoice_number,
             "orgInvcNo": 0,  # 0 for normal invoices
-            "custTin": invoice.customer_ref_value or "",
+            "custTin": customer_kra_pin,  # Use customer's KRA PIN
             "custNm": invoice.customer_name or "",
             "salesTyCd": "N",  # Normal sale
             "rcptTyCd": "S",  # Sale
@@ -190,7 +197,7 @@ class KRAInvoiceService:
             "modrId": "Admin",
             "modrNm": "Admin",
             "receipt": {
-                "custTin": invoice.customer_ref_value or "",
+                "custTin": customer_kra_pin,  # Use customer's KRA PIN here too
                 "custMblNo": "",
                 "rcptPbctDt": self.transform_date_format(timezone.now()),
                 "trdeNm": self.kra_config.trade_name,
@@ -203,7 +210,7 @@ class KRAInvoiceService:
         }
         
         return payload
-    
+
     def submit_to_kra(self, invoice_id):
         """Main method to submit invoice to KRA"""
         try:
