@@ -729,14 +729,7 @@
                 </div>
                 {% endif %}
 
-                <!-- Add this debug section right before the QR code section -->
-                <div style="border: 2px solid #ef4444; padding: 10px; margin: 10px 0; background: #fef2f2; font-size: 0.875rem;">
-                    <strong>Debug Info:</strong><br>
-                    KRA Submission: {{ kra_submission|yesno:"Yes,No" }}<br>
-                    QR Code Data: {{ kra_submission.qr_code_data|default:"No QR data" }}<br>
-                    QR Code Generated: {{ qr_code|yesno:"Yes,No" }}<br>
-                    QR Code Length: {{ qr_code|length|default:"0" }} chars
-                </div>
+
                 <!-- Notes Section -->
                 {% comment %} {% if invoice.customer_memo or invoice.private_note %}
                 <div class="notes-section">
