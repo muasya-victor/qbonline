@@ -89,13 +89,11 @@
         .invoice-container {
             background: white;
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-            border: 1px solid #d1d5db;
             margin-bottom: 2rem;
         }
         
         /* Header Section */
         .invoice-header {
-            border-bottom: 1px solid #d1d5db;
             padding: 2rem;
         }
         
@@ -202,10 +200,24 @@
         .date-info {
             background-color: {{ company.brand_color|default:'#0077C5' }};
             color: white;
-            padding: 0.5rem 1rem;
+            padding: 0.5rem;
             display: flex;
             align-items: center;
             gap: 0.5rem;
+            min-width: 0;
+            flex-wrap: nowrap;
+            max-width: 100%;
+        }
+
+        .date-info span:first-of-type {
+            flex-shrink: 0;
+            min-width: 2.5rem; /* Enough for "Date:" or "Due:" */
+        }
+
+        .date-info span:last-of-type {
+            min-width: 8rem; /* Enough for "Oct 27, 2025" */
+            white-space: nowrap;
+            flex-shrink: 1;
         }
         
         /* Products Table */
@@ -215,7 +227,6 @@
         
         .table-container {
             overflow: hidden;
-            border: 1px solid #d1d5db;
         }
         
         table {
@@ -357,7 +368,6 @@
         .tax-summary {
             margin-top: 2rem;
             padding-top: 1.5rem;
-            border-top: 1px solid #d1d5db;
         }
         
         .tax-summary h2 {
@@ -368,7 +378,6 @@
         }
         
         .tax-table {
-            border: 1px solid #d1d5db;
         }
         
         .tax-table th {
@@ -581,20 +590,16 @@
                         </div>
 
                         <div class="date-info">
-                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                            </svg>
+
                             <span>Date:</span>
-                            <span>{{ invoice.txn_date|date:"F j, Y" }}</span>
+                            <span>{{ invoice.txn_date|date:"M j, Y" }}</span>
                         </div>
 
                         {% if invoice.due_date %}
                         <div class="date-info">
-                            <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                            </svg>
-                            <span>Due Date:</span>
-                            <span>{{ invoice.due_date|date:"F j, Y" }}</span>
+ 
+                            <span>Due:</span>
+                            <span>{{ invoice.due_date|date:"M j, Y" }}</span>
                         </div>
                         {% endif %}
                     </div>
@@ -705,7 +710,6 @@
                             {% endif %}
                         </div>
                         <div class="qr-info">
-                            <h3>KRA Submission</h3>
                             <div class="qr-details">
                                 KRA Invoice Number: {{ kra_submission.kra_invoice_number }}<br>
                                 Original Invoice: {{ kra_submission.trd_invoice_no }}<br>
