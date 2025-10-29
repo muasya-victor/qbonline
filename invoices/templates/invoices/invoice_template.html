@@ -692,16 +692,28 @@
                 <div class="qr-section">
                     <div class="qr-container">
                         <div class="qr-code">
-                            <img src="data:image/png;base64,{{ qr_code }}" 
-                                 alt="KRA QR Code" 
-                                 class="qr-img">
+                            <!-- Use the URL directly since it's already a QR code image URL -->
+                            <img src="{{ kra_submission.qr_code_data }}" 
+                                alt="KRA QR Code" 
+                                class="qr-img"
+                                onerror="this.style.display='none'; console.log('QR code image failed to load')">
                         </div>
                         <div class="qr-info">
                             <h3>KRA Submission</h3>
                             <div class="qr-details">
                                 Invoice Number: {{ kra_submission.kra_invoice_number }}<br>
                                 Status: <span class="font-semibold">{{ kra_submission.status|title }}</span><br>
+                                Receipt Signature: {{ kra_submission.receipt_signature }}<br>
                                 Submitted: {{ kra_submission.created_at|date:"F j, Y" }}
+                            </div>
+                            <!-- Add a link to open the KRA receipt in a new tab -->
+                            <div style="margin-top: 10px;">
+                                <a href="{{ kra_submission.qr_code_data }}" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style="color: #2563eb; text-decoration: underline; font-size: 0.875rem;">
+                                    Open KRA Receipt
+                                </a>
                             </div>
                         </div>
                     </div>
