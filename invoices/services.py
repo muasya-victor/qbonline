@@ -14,6 +14,7 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.decorators import action
 from project.settings_qbo import BASE_URL
+from django.utils import timezone
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -60,16 +61,24 @@ class QuickBooksInvoiceService:
         else:
             logger.info(f"QuickBooks API Call: {log_data}")
     
+    from datetime import datetime, timedelta, timezone
+
     def fetch_invoices_from_qb(self) -> List[Dict[str, Any]]:
-        """Fetch all invoices from QuickBooks API (handles pagination)"""
+        """Fetch invoices updated in the last 24 hours from QuickBooks API"""
         url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
         all_invoices = []
         start_position = 1
         batch_size = 1000
 
+        # Calculate timestamp for 24 hours ago in UTC (QuickBooks expects UTC ISO format)
+        from datetime import datetime, timedelta, timezone
+
+        last_24h_time = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime("%Y-%m-%dT%H:%M:%SZ")
+
         while True:
-            query = f"SELECT * FROM Invoice STARTPOSITION {start_position} MAXRESULTS {batch_size}"
-            logger.info(f"Fetching invoices {start_position}–{start_position + batch_size - 1} for company {self.company.realm_id}")
+            query = f"SELECT * FROM Invoice WHERE MetaData.LastUpdatedTime >= '{last_24h_time}' STARTPOSITION {start_position} MAXRESULTS {batch_size}"
+
+            logger.info(f"Fetching invoices updated since {last_24h_time}, positions {start_position}–{start_position + batch_size - 1}")
 
             try:
                 response = requests.get(
@@ -79,10 +88,10 @@ class QuickBooksInvoiceService:
                     timeout=30
                 )
                 response.raise_for_status()
-                
+
                 self._log_api_call(
-                    response, 
-                    'fetch_invoices',
+                    response,
+                    'fetch_invoices_recent',
                     {
                         'batch_start': start_position,
                         'batch_size': batch_size,
@@ -92,16 +101,15 @@ class QuickBooksInvoiceService:
 
                 data = response.json()
                 invoices = data.get("QueryResponse", {}).get("Invoice", [])
-                
+
                 if not invoices:
-                    logger.info(f"No more invoices found at position {start_position}")
+                    logger.info(f"No invoices found after {last_24h_time}")
                     break
 
                 all_invoices.extend(invoices)
                 logger.info(f"Retrieved {len(invoices)} invoices in batch (total so far: {len(all_invoices)})")
 
                 if len(invoices) < batch_size:
-                    logger.info(f"Reached end of invoices at position {start_position}")
                     break
 
                 start_position += batch_size
@@ -113,9 +121,9 @@ class QuickBooksInvoiceService:
                 logger.error(f"Unexpected error fetching invoices batch {start_position}: {str(e)}")
                 raise
 
-        logger.info(f"Finished fetching {len(all_invoices)} total invoices for company {self.company.realm_id}")
+        logger.info(f"Finished fetching {len(all_invoices)} invoices updated in last 24 hours for company {self.company.realm_id}")
         return all_invoices
-    
+
     def extract_tax_information(self, invoice_data: Dict) -> Tuple[Decimal, Decimal, str, Decimal]:
         """Extract comprehensive tax information from invoice data"""
         subtotal = Decimal('0.00')

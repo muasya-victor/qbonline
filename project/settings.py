@@ -135,7 +135,7 @@ if DATABASE_ENVIRONMENT == "production":
             'PORT': os.getenv('DB_PORT', '5432'),
             'OPTIONS': {
                 # Timeout in milliseconds (420000 = 7 minutes)
-                'options': '-c statement_timeout=420000',
+                'options': '-c statement_timeout=900000',
             },
         }
     }
