@@ -71,6 +71,13 @@ class InvoiceViewSet(viewsets.ModelViewSet):
 
     def get_serializer_class(self):
         return InvoiceSerializer
+    
+    from rest_framework.pagination import PageNumberPagination
+
+    class InvoicePagination(PageNumberPagination):
+        page_size = 20
+        page_size_query_param = 'page_size'
+    max_page_size = 100
 
     def list(self, request, *args, **kwargs):
         try:
@@ -81,37 +88,50 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     "error": "No active company found. Please select a company first."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
+            # Get the base queryset with all filters applied
             queryset = self.get_queryset()
             
-            # Get invoice statistics
+            # Calculate statistics from the filtered queryset
             total_invoices = queryset.count()
             paid_invoices = queryset.filter(balance=0).count()
             unpaid_invoices = queryset.filter(balance__gt=0).count()
-            
-            # Customer link statistics
             invoices_with_customers = queryset.filter(customer__isnull=False).count()
             invoices_with_stub_customers = queryset.filter(customer__is_stub=True).count()
             
-            # Pagination
-            page = int(request.query_params.get('page', 1))
-            page_size = int(request.query_params.get('page_size', 20))
-            
-            paginator = Paginator(queryset, page_size)
-            page_obj = paginator.get_page(page)
-            
-            serializer = self.get_serializer(page_obj, many=True)
-            
+            # Use DRF pagination
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                
+                # Create the paginated response
+                response_data = self.get_paginated_response(serializer.data)
+                
+                # Add custom data to the response
+                response_data.data.update({
+                    "success": True,
+                    "company_info": {
+                        "name": active_company.name,
+                        "qb_company_name": active_company.qb_company_name,
+                        "currency_code": active_company.currency_code,
+                        "realm_id": active_company.realm_id,
+                    },
+                    "stats": {
+                        "total_invoices": total_invoices,
+                        "paid_invoices": paid_invoices,
+                        "unpaid_invoices": unpaid_invoices,
+                        "invoices_with_customers": invoices_with_customers,
+                        "invoices_with_stub_customers": invoices_with_stub_customers,
+                        "invoices_without_customers": total_invoices - invoices_with_customers,
+                        "customer_link_quality": round((invoices_with_customers / total_invoices * 100), 2) if total_invoices > 0 else 0
+                    }
+                })
+                return response_data
+
+            # Fallback if no pagination (shouldn't normally happen with pagination_class set)
+            serializer = self.get_serializer(queryset, many=True)
             return Response({
                 "success": True,
                 "invoices": serializer.data,
-                "pagination": {
-                    "count": paginator.count,
-                    "next": page_obj.next_page_number() if page_obj.has_next() else None,
-                    "previous": page_obj.previous_page_number() if page_obj.has_previous() else None,
-                    "page_size": page_size,
-                    "current_page": page,
-                    "total_pages": paginator.num_pages
-                },
                 "company_info": {
                     "name": active_company.name,
                     "qb_company_name": active_company.qb_company_name,
@@ -125,7 +145,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                     "invoices_with_customers": invoices_with_customers,
                     "invoices_with_stub_customers": invoices_with_stub_customers,
                     "invoices_without_customers": total_invoices - invoices_with_customers,
-                    "customer_link_quality": (invoices_with_customers / total_invoices * 100) if total_invoices > 0 else 0
+                    "customer_link_quality": round((invoices_with_customers / total_invoices * 100), 2) if total_invoices > 0 else 0
                 }
             })
             
@@ -134,7 +154,7 @@ class InvoiceViewSet(viewsets.ModelViewSet):
                 "success": False,
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+    
     @action(detail=False, methods=["post"], url_path="sync-from-quickbooks", url_name="sync-invoices")
     def sync_from_quickbooks(self, request):
         """Sync invoices from QuickBooks (legacy method)"""
