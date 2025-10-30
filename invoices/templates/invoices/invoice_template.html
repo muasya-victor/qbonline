@@ -632,20 +632,23 @@
                                 <td>
                                     <div>
                                         <div class="item-name">{{ item.item_name }}</div>
-                                        <div class="item-description">
+                                        {% comment %} <div class="item-description">
                                             {{ item.description|default:"Product description" }}
-                                        </div>
+                                        </div> {% endcomment %}
                                     </div>
                                 </td>
                                 <td class="text-center">
-                                    <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ item.tax_amount|default:0|floatformat:2 }}
+                                    {% comment %} <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span> {% endcomment %}
+                                    {{ item.tax_amount|default:0|floatformat:2 }}
                                 </td>
                                 <td class="text-center">{{ item.qty|floatformat:2 }}</td>
                                 <td class="text-center">
-                                    <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ item.unit_price|floatformat:2 }}
+                                    {% comment %} <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span> {% endcomment %}
+                                    {{ item.unit_price|floatformat:2 }}
                                 </td>
                                 <td class="text-center font-medium">
-                                    <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ item.amount|floatformat:2 }}
+                                    {% comment %} <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span> {% endcomment %}
+                                    {{ item.amount|floatformat:2 }}
                                 </td>
                             </tr>
                             {% endfor %}
@@ -732,8 +735,7 @@
                         </div>
                         <div class="qr-info">
                             <div class="qr-details">
-                                KRA Invoice Number: {{ kra_submission.kra_invoice_number }}<br>
-                                Original Invoice: {{ kra_submission.trd_invoice_no }}<br>
+                                {% comment %} Original Invoice: {{ kra_submission.trd_invoice_no }}<br> {% endcomment %}
                                 Status: <span class="font-semibold" style="color: {% if kra_submission.status == 'success' %}#10b981{% else %}#ef4444{% endif %};">
                                     {{ kra_submission.status|title }}
                                 </span><br>
