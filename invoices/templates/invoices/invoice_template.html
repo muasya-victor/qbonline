@@ -493,6 +493,11 @@
         .text-lg { font-size: 1.125rem; }
         .text-xl { font-size: 1.25rem; }
         .text-2xl { font-size: 1.5rem; }
+        
+        /* Currency formatting */
+        .currency-symbol {
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
@@ -590,14 +595,12 @@
                         </div>
 
                         <div class="date-info">
-
                             <span>Date:</span>
                             <span>{{ invoice.txn_date|date:"M j, Y" }}</span>
                         </div>
 
                         {% if invoice.due_date %}
                         <div class="date-info">
- 
                             <span>Due:</span>
                             <span>{{ invoice.due_date|date:"M j, Y" }}</span>
                         </div>
@@ -634,10 +637,16 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="text-center">${{ item.tax_amount|default:0|floatformat:2 }}</td>
+                                <td class="text-center">
+                                    <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ item.tax_amount|default:0|floatformat:2 }}
+                                </td>
                                 <td class="text-center">{{ item.qty|floatformat:2 }}</td>
-                                <td class="text-center">${{ item.unit_price|floatformat:2 }}</td>
-                                <td class="text-center font-medium">${{ item.amount|floatformat:2 }}</td>
+                                <td class="text-center">
+                                    <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ item.unit_price|floatformat:2 }}
+                                </td>
+                                <td class="text-center font-medium">
+                                    <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ item.amount|floatformat:2 }}
+                                </td>
                             </tr>
                             {% endfor %}
                         </tbody>
@@ -649,22 +658,30 @@
                     <div class="totals-container">
                         <div class="total-row">
                             <span class="total-label">SUBTOTAL:</span>
-                            <span class="total-amount">${{ invoice.subtotal|default:invoice.total_amt|floatformat:2 }}</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.subtotal|default:invoice.total_amt|floatformat:2 }}
+                            </span>
                         </div>
                         
                         <div class="total-row">
                             <span class="total-label">TOTAL TAX:</span>
-                            <span class="total-amount">${{ invoice.tax_total|default:0|floatformat:2 }}</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.tax_total|default:0|floatformat:2 }}
+                            </span>
                         </div>
 
                         <div class="total-row total-main">
                             <span class="total-label">Total:</span>
-                            <span class="total-amount">${{ invoice.total_amt|floatformat:2 }}</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.total_amt|floatformat:2 }}
+                            </span>
                         </div>
 
                         <div class="total-due">
                             <span class="total-label">Total Due:</span>
-                            <span class="total-amount">${{ invoice.total_amt|floatformat:2 }}</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.total_amt|floatformat:2 }}
+                            </span>
                         </div>
                     </div>
                 </div>
@@ -684,8 +701,12 @@
                             <tbody>
                                 <tr>
                                     <td>{{ invoice.tax_percent|default:0|floatformat:2 }}%</td>
-                                    <td>${{ invoice.tax_total|default:0|floatformat:2 }}</td>
-                                    <td>${{ invoice.subtotal|default:0|floatformat:2 }}</td>
+                                    <td>
+                                        <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.tax_total|default:0|floatformat:2 }}
+                                    </td>
+                                    <td>
+                                        <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.subtotal|default:0|floatformat:2 }}
+                                    </td>
                                 </tr>
                             </tbody>
                         </table>
@@ -733,7 +754,6 @@
                 </div>
                 {% endif %}
 
-
                 <!-- Notes Section -->
                 {% comment %} {% if invoice.customer_memo or invoice.private_note %}
                 <div class="notes-section">
@@ -758,10 +778,10 @@
                         {% endif %}
                     </div>
                 </div>
-                {% endif %} {% endcomment %}
+                {% endif %}
 
                 <!-- Footer -->
-                {% comment %} {% if company.invoice_footer_text %}
+                {% if company.invoice_footer_text %}
                 <div class="invoice-footer">
                     <p class="footer-text">{{ company.invoice_footer_text }}</p>
                 </div>
@@ -769,5 +789,62 @@
             </div>
         </div>
     </div>
+
+    <!-- Currency formatting script -->
+    <script>
+        // Function to format currency based on company currency code
+        function formatCurrency(amount, currencyCode) {
+            const formatter = new Intl.NumberFormat('en-US', {
+                style: 'currency',
+                currency: currencyCode,
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+            
+            // For currencies that don't have symbols in Intl.NumberFormat, use custom formatting
+            const customCurrencies = {
+                'KES': 'KSh',
+                'UGX': 'USh',
+                'TZS': 'TSh',
+                'NGN': '₦',
+                'GHS': 'GH₵',
+                'ZAR': 'R'
+            };
+            
+            if (customCurrencies[currencyCode]) {
+                return customCurrencies[currencyCode] + amount.toFixed(2);
+            }
+            
+            return formatter.format(amount);
+        }
+
+        // Apply currency formatting to all currency elements on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const currencyCode = '{{ company.currency_code|default:"USD" }}';
+            const currencyElements = document.querySelectorAll('.currency-symbol');
+            
+            // Update all currency symbols to show the actual currency code
+            currencyElements.forEach(element => {
+                const customSymbols = {
+                    'USD': '$',
+                    'EUR': '€',
+                    'GBP': '£',
+                    'JPY': '¥',
+                    'KES': 'KSh ',
+                    'UGX': 'USh ',
+                    'TZS': 'TSh ',
+                    'NGN': '₦',
+                    'GHS': 'GH₵ ',
+                    'ZAR': 'R'
+                };
+                
+                if (customSymbols[currencyCode]) {
+                    element.textContent = customSymbols[currencyCode];
+                } else {
+                    element.textContent = currencyCode + ' ';
+                }
+            });
+        });
+    </script>
 </body>
 </html>
