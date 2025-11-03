@@ -65,7 +65,7 @@ class QuickBooksInvoiceService:
         url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
         all_invoices = []
         start_position = 1
-        batch_size = 500  # Reduced for better reliability
+        batch_size = 500  
 
         # Calculate timestamp for 2 days ago in UTC
         two_days_ago = (datetime.now(tz.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
