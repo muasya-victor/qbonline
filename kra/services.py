@@ -544,7 +544,7 @@ from django.db import transaction
 from django.utils import timezone
 from companies.models import Company
 from creditnote.models import CreditNote
-from kra.models import KRACompanyConfig
+from kra.models import KRACompanyConfig, KRAInvoiceCounter, KRAInvoiceSubmission
 
 class KRACreditNoteService:
     """Service for handling KRA credit note submissions"""
@@ -566,21 +566,21 @@ class KRACreditNoteService:
             counter.save()
             return counter.last_credit_note_number
     
-    def map_tax_category(self, tax_code_ref, tax_rate):
+    def map_tax_category(self, tax_code_ref, tax_percent):  # CHANGED: tax_rate → tax_percent
         """
         Map QuickBooks tax codes to KRA tax categories
         Same logic as invoice service
         """
         tax_code_ref = str(tax_code_ref or "").upper()
         
-        # Convert tax_rate to Decimal if it's not already
-        if tax_rate is not None:
+        # Convert tax_percent to Decimal if it's not already
+        if tax_percent is not None:
             try:
-                tax_rate = Decimal(str(tax_rate))
+                tax_percent = Decimal(str(tax_percent))
             except (ValueError, TypeError):
-                tax_rate = Decimal('0.00')
+                tax_percent = Decimal('0.00')
         else:
-            tax_rate = Decimal('0.00')
+            tax_percent = Decimal('0.00')
         
         # Map common QuickBooks tax codes to KRA categories
         tax_code_mapping = {
@@ -613,12 +613,12 @@ class KRACreditNoteService:
         if tax_code_ref in tax_code_mapping:
             return tax_code_mapping[tax_code_ref]
         
-        # Fall back to tax rate mapping
-        if tax_rate == Decimal('16') or tax_rate == Decimal('16.00'):
+        # Fall back to tax percent mapping
+        if tax_percent == Decimal('16') or tax_percent == Decimal('16.00'):
             return 'B'
-        elif tax_rate == Decimal('8') or tax_rate == Decimal('8.00'):
+        elif tax_percent == Decimal('8') or tax_percent == Decimal('8.00'):
             return 'E'
-        elif tax_rate == Decimal('0') or tax_rate == Decimal('0.00'):
+        elif tax_percent == Decimal('0') or tax_percent == Decimal('0.00'):
             return 'C'
         else:
             return 'D'  # Non-VAT or unknown
@@ -634,7 +634,8 @@ class KRACreditNoteService:
         }
         
         for item in line_items:
-            tax_category = self.map_tax_category(item.tax_code_ref, item.tax_rate)
+            # CHANGED: item.tax_rate → item.tax_percent
+            tax_category = self.map_tax_category(item.tax_code_ref, item.tax_percent)
             
             # Use the actual taxable amount from the line item
             taxable_amount = item.amount  # This should be the taxable amount
@@ -675,7 +676,8 @@ class KRACreditNoteService:
         # Build item list
         item_list = []
         for idx, line_item in enumerate(credit_note.line_items.all(), 1):
-            tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_rate)
+            # CHANGED: line_item.tax_rate → line_item.tax_percent
+            tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_percent)
             
             # Calculate taxable amount correctly
             taxable_amount = line_item.amount  # Use amount as taxable base
