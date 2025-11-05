@@ -397,8 +397,10 @@ def generate_invoice_pdf(request, invoice_id):
         invoice = Invoice.objects.get(id=invoice_id)
         company = invoice.company
         
-        # Get KRA submission - use the related_name 'kra_submissions'
-        kra_submission = invoice.kra_submissions.first()  # Get the most recent submission
+        # FIX: Get the most recent SUCCESSFUL KRA submission
+        kra_submission = invoice.kra_submissions.filter(
+            status__in=['success', 'signed', 'completed']  # Include all possible success statuses
+        ).order_by('-created_at').first()  # Get the NEWEST submission
         
         print(f"Invoice: {invoice.id}")
         print(f"KRA Submission found: {kra_submission is not None}")
@@ -406,6 +408,14 @@ def generate_invoice_pdf(request, invoice_id):
             print(f"KRA Submission ID: {kra_submission.id}")
             print(f"KRA Status: {kra_submission.status}")
             print(f"QR Code Data: {kra_submission.qr_code_data}")
+            print(f"QR Code Data Length: {len(kra_submission.qr_code_data) if kra_submission.qr_code_data else 0}")
+        else:
+            print("No successful KRA submission found")
+            # Debug: Check all submissions
+            all_submissions = invoice.kra_submissions.all()
+            print(f"Total KRA submissions: {all_submissions.count()}")
+            for sub in all_submissions:
+                print(f"  - ID: {sub.id}, Status: {sub.status}, QR Data: {bool(sub.qr_code_data)}")
         
         context = {
             'invoice': invoice,
@@ -416,6 +426,12 @@ def generate_invoice_pdf(request, invoice_id):
         # Generate QR code if KRA data exists
         if kra_submission and kra_submission.qr_code_data:
             try:
+                # Validate QR code data
+                if not kra_submission.qr_code_data.strip():
+                    print("QR code data is empty")
+                elif len(kra_submission.qr_code_data) > 1000:
+                    print(f"QR code data might be too long: {len(kra_submission.qr_code_data)} chars")
+                
                 qr = qrcode.QRCode(
                     version=1,
                     error_correction=qrcode.constants.ERROR_CORRECT_L,
@@ -432,10 +448,12 @@ def generate_invoice_pdf(request, invoice_id):
                 
                 qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
                 context['qr_code'] = qr_code_base64
-                print(f"QR code generated successfully")
+                print(f"QR code generated successfully, base64 length: {len(qr_code_base64)}")
                 
             except Exception as e:
                 print(f"Error generating QR code: {e}")
+                import traceback
+                traceback.print_exc()
         
         html_string = render_to_string('invoices/invoice_template.html', context)
         
@@ -449,7 +467,8 @@ def generate_invoice_pdf(request, invoice_id):
         
     except Invoice.DoesNotExist:
         return HttpResponse("Invoice not found", status=404)
-
+    
+    
 @csrf_exempt
 def invoice_detail(request, invoice_id):
     """HTML view of invoice (no login required)"""
