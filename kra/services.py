@@ -322,8 +322,8 @@ class KRAInvoiceService:
         bhf_id = self.kra_config.bhf_id
         receipt_sign = kra_data.get('rcptSign', '')
         
-        # qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
-        qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        # qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
         return qr_data
     
 # kra/services.py - Add these methods to existing KRAService
