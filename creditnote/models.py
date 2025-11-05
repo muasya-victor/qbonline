@@ -24,11 +24,12 @@ class CreditNote(TimeStampModel):
     subtotal = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     tax_total = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
+    # KRA validation - same as invoices
     is_kra_validated = models.BooleanField(default=False)
     
     # Enhanced tax information
-    tax_rate_ref = models.CharField(max_length=50, blank=True, null=True, help_text="QuickBooks TaxRateRef value")
-    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Actual tax percentage")
+    tax_rate_ref = models.CharField(max_length=50, blank=True, null=True)
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     
     # Related invoice
     related_invoice = models.ForeignKey(
@@ -44,9 +45,9 @@ class CreditNote(TimeStampModel):
     customer_memo = models.TextField(blank=True, null=True)
     sync_token = models.CharField(max_length=50)
 
-    # Template info (QuickBooks CustomTemplateRef)
-    template_id = models.CharField(max_length=100, blank=True, null=True, help_text="QuickBooks template ID used for this credit note")
-    template_name = models.CharField(max_length=255, blank=True, null=True, help_text="Name of the QuickBooks template")
+    # Template info
+    template_id = models.CharField(max_length=100, blank=True, null=True)
+    template_name = models.CharField(max_length=255, blank=True, null=True)
     
     # Raw QB data
     raw_data = models.JSONField(blank=True, null=True)
@@ -63,6 +64,14 @@ class CreditNote(TimeStampModel):
     def __str__(self):
         return f"Credit Note {self.doc_number or self.qb_credit_id} - {self.customer_name}"
 
+    @property
+    def status(self):
+        """Calculate status based on balance - same logic as needed for frontend"""
+        if self.balance == 0:
+            return 'applied'
+        elif self.balance > 0:
+            return 'pending'
+        return 'void'
 
 class CreditNoteLine(TimeStampModel):
     """Credit Note line items"""
@@ -81,9 +90,9 @@ class CreditNoteLine(TimeStampModel):
     amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
 
     # Enhanced tax information
-    tax_code_ref = models.CharField(max_length=50, blank=True, null=True, help_text="QuickBooks TaxCodeRef value")
-    tax_rate_ref = models.CharField(max_length=50, blank=True, null=True, help_text="QuickBooks TaxRateRef value")
-    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="Actual tax percentage")
+    tax_code_ref = models.CharField(max_length=50, blank=True, null=True)
+    tax_rate_ref = models.CharField(max_length=50, blank=True, null=True)
+    tax_percent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     tax_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     
     # Raw QB data

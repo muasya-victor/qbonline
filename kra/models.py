@@ -1,3 +1,4 @@
+# kra/models.py
 import uuid
 from django.db import models
 from django.conf import settings
@@ -28,9 +29,10 @@ class KRACompanyConfig(TimeStampModel):
         return f"KRA Config - {self.company.name}"
 
 class KRAInvoiceCounter(models.Model):
-    """Sequential invoice counter for KRA submissions per company"""
+    """Sequential invoice counter for KRA submissions per company - used for both invoices and credit notes"""
     company = models.OneToOneField(Company, on_delete=models.CASCADE, related_name='kra_invoice_counter')
     last_invoice_number = models.IntegerField(default=0)
+    last_credit_note_number = models.IntegerField(default=0)
     last_used_date = models.DateField(auto_now=True)
     
     class Meta:
@@ -41,154 +43,131 @@ class KRAInvoiceCounter(models.Model):
         return f"Counter - {self.company.name}: {self.last_invoice_number}"
 
 class KRAInvoiceSubmission(TimeStampModel):
-    """Tracks KRA invoice submissions"""
+    """Tracks KRA submissions for both invoices and credit notes"""
     company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='kra_submissions')
-    invoice = models.ForeignKey(Invoice, on_delete=models.CASCADE, related_name='kra_submissions')
-    kra_invoice_number = models.IntegerField()  # Sequential eTIMS number
-    trd_invoice_no = models.CharField(max_length=15)  # Your system's INV-001
-    submitted_data = models.JSONField()  # Payload sent to KRA
-    response_data = models.JSONField(null=True, blank=True)  # KRA response
+    invoice = models.ForeignKey(
+        Invoice, 
+        on_delete=models.CASCADE, 
+        related_name='kra_submissions',
+        null=True,
+        blank=True
+    )
+    credit_note = models.ForeignKey(
+        CreditNote,
+        on_delete=models.CASCADE,
+        related_name='kra_submissions', 
+        null=True,
+        blank=True
+    )
+    kra_invoice_number = models.IntegerField() 
+    trd_invoice_no = models.CharField(max_length=100)  
+    document_type = models.CharField(
+        max_length=20,
+        choices=[
+            ('invoice', 'Invoice'),
+            ('credit_note', 'Credit Note')
+        ],
+        default='invoice'
+    )
+    submitted_data = models.JSONField() 
+    response_data = models.JSONField(null=True, blank=True)  
     status = models.CharField(
         max_length=20,
         choices=[
             ('pending', 'Pending'),
             ('submitted', 'Submitted'),
             ('success', 'Success'),
-            ('failed', 'Failed')
+            ('signed', 'Signed'),
+            ('failed', 'Failed'),
+            ('cancelled', 'Cancelled')
         ],
         default='pending'
     )
     error_message = models.TextField(blank=True)
     qr_code_data = models.TextField(blank=True)  # QR code content
-    receipt_signature = models.CharField(max_length=100, blank=True)  # KRA receipt signature
+    receipt_signature = models.CharField(max_length=255, blank=True)  # KRA receipt signature
+    
+    # Timestamps for tracking
+    submitted_at = models.DateTimeField(null=True, blank=True)
+    validated_at = models.DateTimeField(null=True, blank=True)
     
     class Meta:
         unique_together = ('company', 'kra_invoice_number')
         indexes = [
             models.Index(fields=['company', 'status']),
             models.Index(fields=['invoice']),
+            models.Index(fields=['credit_note']),
             models.Index(fields=['kra_invoice_number']),
+            models.Index(fields=['document_type']),
+            models.Index(fields=['trd_invoice_no']),
         ]
-        verbose_name = "KRA Invoice Submission"
-        verbose_name_plural = "KRA Invoice Submissions"
+        verbose_name = "KRA Submission"
+        verbose_name_plural = "KRA Submissions"
 
     def __str__(self):
-        return f"KRA Submission {self.kra_invoice_number} - {self.status}"
- 
+        doc_type = self.document_type.upper()
+        doc_number = self.trd_invoice_no
+        return f"KRA {doc_type} {self.kra_invoice_number} - {doc_number} ({self.status})"
 
-class KRACreditNoteSubmission(TimeStampModel):
-    """Model to track KRA submissions for credit notes"""
-    
-    STATUS_CHOICES = [
-        ('pending', 'Pending'),
-        ('submitted', 'Submitted to KRA'),
-        ('success', 'Success'),
-        ('signed', 'Signed'),
-        ('failed', 'Failed'),
-        ('cancelled', 'Cancelled'),
-    ]
+    def clean(self):
+        """Ensure either invoice or credit_note is set, but not both"""
+        from django.core.exceptions import ValidationError
+        if not self.invoice and not self.credit_note:
+            raise ValidationError("Either invoice or credit_note must be set.")
+        if self.invoice and self.credit_note:
+            raise ValidationError("Cannot set both invoice and credit_note.")
 
-    company = models.ForeignKey(Company, on_delete=models.CASCADE, related_name='kra_credit_note_submissions')
-    credit_note = models.ForeignKey(CreditNote, on_delete=models.CASCADE, related_name='kra_submissions')
-    
-    # KRA submission details
-    kra_credit_note_number = models.CharField(max_length=100, blank=True, null=True, help_text="KRA-assigned credit note number")
-    
-    # ADD THESE FIELDS to match invoice submission
-    trd_credit_note_no = models.CharField(max_length=100, blank=True, null=True, help_text="Trading credit note number")
-    submitted_data = models.JSONField(blank=True, null=True, help_text="Data submitted to KRA")
-    response_data = models.JSONField(blank=True, null=True, help_text="Response from KRA")
-    
-    receipt_signature = models.TextField(blank=True, null=True, help_text="KRA receipt signature")
-    qr_code_data = models.TextField(blank=True, null=True, help_text="QR code data from KRA")
-    
-    # Status tracking
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    error_message = models.TextField(blank=True, null=True, help_text="Error message if submission failed")
-    
-    # Timestamps
-    submitted_at = models.DateTimeField(blank=True, null=True, help_text="When the submission was sent to KRA")
-    validated_at = models.DateTimeField(blank=True, null=True, help_text="When KRA validation was completed")
-    
-    # Additional metadata
-    attempt_count = models.IntegerField(default=1, help_text="Number of submission attempts")
-    last_attempt_at = models.DateTimeField(auto_now=True, help_text="Last submission attempt")
-    
-    class Meta:
-        db_table = 'kra_credit_note_submissions'
-        indexes = [
-            models.Index(fields=['company', 'status']),
-            models.Index(fields=['credit_note', 'status']),
-            models.Index(fields=['submitted_at']),
-            models.Index(fields=['kra_credit_note_number']),
-        ]
-        ordering = ['-created_at']
-    
-    def __str__(self):
-        return f"KRA Submission for {self.credit_note.doc_number} - {self.status}"
-    
-    def mark_submitted(self, submitted_data=None, trd_credit_note_no=None):
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def mark_submitted(self):
         """Mark as submitted to KRA"""
         self.status = 'submitted'
         self.submitted_at = timezone.now()
-        if submitted_data:
-            self.submitted_data = submitted_data
-        if trd_credit_note_no:
-            self.trd_credit_note_no = trd_credit_note_no
         self.save()
-    
-    def mark_success(self, response_data, kra_credit_note_number=None, receipt_signature=None, qr_code_data=None):
+
+    def mark_success(self, response_data, receipt_signature=None, qr_code_data=None):
         """Mark as successfully submitted to KRA"""
         self.status = 'success'
         self.validated_at = timezone.now()
         self.response_data = response_data
-        self.kra_credit_note_number = kra_credit_note_number
-        self.receipt_signature = receipt_signature
-        self.qr_code_data = qr_code_data
+        self.receipt_signature = receipt_signature or ''
+        self.qr_code_data = qr_code_data or ''
         self.save()
         
-        # Also mark the credit note as KRA validated
-        self.credit_note.is_kra_validated = True
-        self.credit_note.save(update_fields=['is_kra_validated', 'updated_at'])
-    
+        # Mark the linked document as KRA validated
+        if self.invoice:
+            self.invoice.is_kra_validated = True
+            self.invoice.save(update_fields=['is_kra_validated', 'updated_at'])
+        elif self.credit_note:
+            self.credit_note.is_kra_validated = True
+            self.credit_note.save(update_fields=['is_kra_validated', 'updated_at'])
+
+    def mark_signed(self):
+        """Mark as signed by customer"""
+        self.status = 'signed'
+        self.save()
+
     def mark_failed(self, error_message, response_data=None):
         """Mark as failed submission"""
         self.status = 'failed'
         self.error_message = error_message
         if response_data:
             self.response_data = response_data
-        self.attempt_count += 1
         self.save()
-    
-    def mark_signed(self):
-        """Mark as signed by customer"""
-        self.status = 'signed'
-        self.save()
-    
+
+    @property
+    def document(self):
+        """Get the linked document (invoice or credit note)"""
+        return self.invoice or self.credit_note
+
     @property
     def is_successful(self):
         """Check if submission was successful"""
         return self.status in ['success', 'signed']
-    
+
     @property
     def can_retry(self):
         """Check if submission can be retried"""
         return self.status in ['failed', 'pending']
-
-# Add to kra/models.py
-class KRACreditNoteCounter(models.Model):
-    """Model to track sequential credit note numbers for KRA"""
-    company = models.OneToOneField(
-        Company, 
-        on_delete=models.CASCADE, 
-        related_name='kra_credit_note_counter'
-    )
-    last_credit_note_number = models.IntegerField(default=0)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        db_table = 'kra_credit_note_counter'
-
-    def __str__(self):
-        return f"KRA Credit Note Counter - {self.company.name}: {self.last_credit_note_number}"

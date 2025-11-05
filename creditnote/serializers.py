@@ -1,9 +1,10 @@
+# creditnote/serializers.py
 from rest_framework import serializers
 from .models import CreditNote, CreditNoteLine
 from invoices.models import Invoice
 from companies.models import Company
-from kra.models import KRACreditNoteSubmission
-
+from kra.models import KRAInvoiceSubmission
+from invoices.serializers import KRASubmissionSerializer
 
 class CreditNoteLineSerializer(serializers.ModelSerializer):
     """Serializer for credit note line items with tax information"""
@@ -18,20 +19,6 @@ class CreditNoteLineSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
 
-
-class KRACreditNoteSubmissionSerializer(serializers.ModelSerializer):
-    """Serializer for KRA credit note submissions"""
-    
-    class Meta:
-        model = KRACreditNoteSubmission
-        fields = [
-            "id", "kra_credit_note_number", "receipt_signature", "qr_code_data",
-            "status", "error_message", "response_data", "submitted_at",
-            "validated_at", "created_at", "updated_at"
-        ]
-        read_only_fields = ["id", "created_at", "updated_at"]
-
-
 class RelatedInvoiceSerializer(serializers.ModelSerializer):
     """Serializer for related invoice information"""
     
@@ -41,7 +28,6 @@ class RelatedInvoiceSerializer(serializers.ModelSerializer):
             "id", "doc_number", "customer_name", "total_amt",
             "subtotal", "tax_total", "txn_date", "balance"
         ]
-
 
 class CompanyInfoSerializer(serializers.ModelSerializer):
     """Serializer for company information"""
@@ -54,19 +40,20 @@ class CompanyInfoSerializer(serializers.ModelSerializer):
             "invoice_footer_text"
         ]
 
-
 class CreditNoteSerializer(serializers.ModelSerializer):
     """Serializer for credit notes with comprehensive related data"""
     
     line_items = CreditNoteLineSerializer(many=True, read_only=True)
     related_invoice = RelatedInvoiceSerializer(read_only=True)
-    kra_submissions = KRACreditNoteSubmissionSerializer(many=True, read_only=True)
+    
+    # Use the same KRA submission relationship as invoices
+    kra_submissions = KRASubmissionSerializer(many=True, read_only=True)
+    kra_submission = serializers.SerializerMethodField()
+    
     status = serializers.SerializerMethodField()
     currency_code = serializers.CharField(source='company.currency_code', read_only=True)
     company_name = serializers.CharField(source='company.name', read_only=True)
-    has_kra_submission = serializers.SerializerMethodField()
-    latest_kra_status = serializers.SerializerMethodField()
-    kra_validation_status = serializers.SerializerMethodField()
+    is_kra_validated = serializers.SerializerMethodField()
 
     class Meta:
         model = CreditNote
@@ -91,11 +78,13 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             "template_id", "template_name",
             
             # Related data
-            "related_invoice", "line_items", "kra_submissions",
+            "related_invoice", "line_items", 
+            
+            # KRA fields - same as invoices
+            "kra_submissions", "kra_submission", "is_kra_validated",
             
             # Status fields
-            "status", "is_kra_validated", "has_kra_submission",
-            "latest_kra_status", "kra_validation_status",
+            "status",
             
             # Raw data
             "raw_data"
@@ -113,28 +102,16 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             return 'pending'
         return 'void'
 
-    def get_has_kra_submission(self, obj):
-        """Check if credit note has any KRA submissions"""
-        return obj.kra_submissions.exists()
+    def get_is_kra_validated(self, obj):
+        """Check if credit note has been successfully validated with KRA"""
+        return obj.kra_submissions.filter(status__in=['success', 'signed']).exists()
 
-    def get_latest_kra_status(self, obj):
-        """Get the status of the latest KRA submission"""
+    def get_kra_submission(self, obj):
+        """Get the latest KRA submission for this credit note"""
         latest_submission = obj.kra_submissions.order_by('-created_at').first()
-        return latest_submission.status if latest_submission else None
-
-    def get_kra_validation_status(self, obj):
-        """Get comprehensive KRA validation status"""
-        if not obj.kra_submissions.exists():
-            return 'not_submitted'
-        
-        latest_submission = obj.kra_submissions.order_by('-created_at').first()
-        if latest_submission.status in ['success', 'signed']:
-            return 'validated'
-        elif latest_submission.status == 'failed':
-            return 'failed'
-        elif latest_submission.status in ['pending', 'submitted']:
-            return 'pending'
-        return 'unknown'
+        if latest_submission:
+            return KRASubmissionSerializer(latest_submission).data
+        return None
 
 
 class CreditNoteDetailSerializer(CreditNoteSerializer):

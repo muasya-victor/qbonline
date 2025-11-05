@@ -10,13 +10,22 @@ from .serializers import (
     CreditNoteSerializer, 
     CreditNoteLineSerializer, 
     CompanyInfoSerializer,
-    KRACreditNoteSubmissionSerializer  # Add this import
+    CreditNoteDetailSerializer,
+    CreditNoteSummarySerializer
 )
 from invoices.services import QuickBooksCreditNoteService
 from companies.models import ActiveCompany
-from kra.models import KRACreditNoteSubmission
+from kra.models import KRAInvoiceSubmission
 import requests
-
+import os
+import qrcode
+from io import BytesIO
+from django.http import HttpResponse
+from django.template.loader import render_to_string
+from django.views.decorators.csrf import csrf_exempt
+from django.shortcuts import get_object_or_404
+import base64
+from weasyprint import HTML
 
 
 def get_active_company(user):
@@ -26,6 +35,109 @@ def get_active_company(user):
         return active_company.company
     except ActiveCompany.DoesNotExist:
         return None
+
+@csrf_exempt
+def generate_credit_note_pdf(request, credit_note_id):
+    """Generate PDF version of credit note - same as invoice PDF generation"""
+    try:
+        credit_note = get_object_or_404(CreditNote, id=credit_note_id)
+        company = credit_note.company
+        
+        # Get KRA submission - same as invoices
+        kra_submission = credit_note.kra_submissions.filter(
+            status__in=['success', 'signed']
+        ).first()
+        
+        context = {
+            'document': credit_note,
+            'company': company,
+            'kra_submission': kra_submission,
+            'document_type': 'CREDIT NOTE',
+            'line_items': credit_note.line_items.all().order_by('line_num')
+        }
+        
+        # Generate QR code if KRA data exists - same as invoices
+        if kra_submission and kra_submission.qr_code_data:
+            try:
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(kra_submission.qr_code_data)
+                qr.make(fit=True)
+                
+                qr_img = qr.make_image(fill_color="black", back_color="white")
+                buffer = BytesIO()
+                qr_img.save(buffer, format='PNG')
+                buffer.seek(0)
+                
+                qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+                context['qr_code'] = qr_code_base64
+                
+            except Exception as e:
+                print(f"Error generating QR code for credit note: {e}")
+        
+        html_string = render_to_string('creditnotes/credit_note_template.html', context)
+        
+        # Create PDF using WeasyPrint - same as invoices
+        response = HttpResponse(content_type='application/pdf')
+        response['Content-Disposition'] = f'attachment; filename="credit_note_{credit_note.doc_number or credit_note.qb_credit_id}.pdf"'
+        
+        HTML(string=html_string, base_url=request.build_absolute_uri()).write_pdf(response)
+        
+        return response
+        
+    except CreditNote.DoesNotExist:
+        return HttpResponse("Credit note not found", status=404)
+
+@csrf_exempt
+def credit_note_detail_html(request, credit_note_id):
+    """HTML view of credit note (no login required) - same as invoices"""
+    try:
+        credit_note = get_object_or_404(CreditNote, id=credit_note_id)
+        company = credit_note.company
+
+        kra_submission = credit_note.kra_submissions.filter(
+            status__in=['success', 'signed']
+        ).first()
+
+        context = {
+            'document': credit_note,
+            'company': company,
+            'kra_submission': kra_submission,
+            'document_type': 'CREDIT NOTE',
+            'line_items': credit_note.line_items.all().order_by('line_num')
+        }
+
+        # Generate QR code for HTML view - same as invoices
+        if kra_submission and kra_submission.qr_code_data:
+            try:
+                qr = qrcode.QRCode(
+                    version=1,
+                    error_correction=qrcode.constants.ERROR_CORRECT_L,
+                    box_size=10,
+                    border=4,
+                )
+                qr.add_data(kra_submission.qr_code_data)
+                qr.make(fit=True)
+                
+                qr_img = qr.make_image(fill_color="black", back_color="white")
+                buffer = BytesIO()
+                qr_img.save(buffer, format='PNG')
+                buffer.seek(0)
+                
+                qr_code_base64 = base64.b64encode(buffer.getvalue()).decode()
+                context['qr_code'] = qr_code_base64
+                
+            except Exception as e:
+                print(f"Error generating QR code: {e}")
+
+        return render(request, 'creditnotes/credit_note_template.html', context)
+
+    except CreditNote.DoesNotExist:
+        return HttpResponse("Credit note not found", status=404)
 
 
 class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
@@ -40,10 +152,10 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
         if not active_company:
             return CreditNote.objects.none()
 
-        # Prefetch KRA submissions to avoid N+1 queries
+        # Prefetch KRA submissions to avoid N+1 queries - same as invoices
         kra_submissions_prefetch = Prefetch(
             'kra_submissions',
-            queryset=KRACreditNoteSubmission.objects.select_related('company').order_by('-created_at')
+            queryset=KRAInvoiceSubmission.objects.select_related('company').order_by('-created_at')
         )
 
         queryset = CreditNote.objects.filter(
@@ -71,7 +183,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
         elif status_filter == 'void':
             queryset = queryset.filter(balance__lt=0)
 
-        # Apply KRA validation filter
+        # Apply KRA validation filter - same as invoices
         kra_validated = self.request.query_params.get('kra_validated')
         if kra_validated is not None:
             if kra_validated.lower() == 'true':
@@ -123,19 +235,25 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             'total_pages': paginator.num_pages
         }
 
-        # Add KRA submission stats
+        # Add KRA submission stats - using the same KRAInvoiceSubmission model
         kra_stats = {
-            'total_submissions': KRACreditNoteSubmission.objects.filter(company=active_company).count(),
-            'successful_submissions': KRACreditNoteSubmission.objects.filter(
+            'total_submissions': KRAInvoiceSubmission.objects.filter(
                 company=active_company, 
+                document_type='credit_note'
+            ).count(),
+            'successful_submissions': KRAInvoiceSubmission.objects.filter(
+                company=active_company, 
+                document_type='credit_note',
                 status__in=['success', 'signed']
             ).count(),
-            'failed_submissions': KRACreditNoteSubmission.objects.filter(
+            'failed_submissions': KRAInvoiceSubmission.objects.filter(
                 company=active_company, 
+                document_type='credit_note',
                 status='failed'
             ).count(),
-            'pending_submissions': KRACreditNoteSubmission.objects.filter(
+            'pending_submissions': KRAInvoiceSubmission.objects.filter(
                 company=active_company, 
+                document_type='credit_note',
                 status__in=['pending', 'submitted']
             ).count()
         }
@@ -151,11 +269,12 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
     def retrieve(self, request, *args, **kwargs):
         """Retrieve a single credit note with detailed information"""
         instance = self.get_object()
-        serializer = self.get_serializer(instance)
+        serializer = CreditNoteDetailSerializer(instance)
         
-        # Get additional KRA submission details
+        # Get additional KRA submission details - same as invoices
         kra_submissions = instance.kra_submissions.all().order_by('-created_at')
-        kra_serializer = KRACreditNoteSubmissionSerializer(kra_submissions, many=True)
+        from kra.serializers import KRASubmissionSerializer
+        kra_serializer = KRASubmissionSerializer(kra_submissions, many=True)
         
         response_data = serializer.data
         response_data['kra_submissions_detail'] = kra_serializer.data
@@ -172,7 +291,8 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
         credit_note = self.get_object()
         submissions = credit_note.kra_submissions.all().order_by('-created_at')
         
-        serializer = KRACreditNoteSubmissionSerializer(submissions, many=True)
+        from kra.serializers import KRASubmissionSerializer
+        serializer = KRASubmissionSerializer(submissions, many=True)
         
         return Response({
             'success': True,
@@ -181,14 +301,14 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             'customer_name': credit_note.customer_name,
             'kra_submissions': serializer.data,
             'total_submissions': submissions.count(),
-            'latest_submission': KRACreditNoteSubmissionSerializer(submissions.first()).data if submissions.exists() else None
+            'latest_submission': KRASubmissionSerializer(submissions.first()).data if submissions.exists() else None
         })
 
     @action(detail=True, methods=['post'])
     def submit_to_kra(self, request, pk=None):
-        """Submit a specific credit note to KRA"""
+        """Submit a specific credit note to KRA using the same service as invoices"""
         try:
-            credit_note = self.get_object()  # This gets the credit note using the pk parameter
+            credit_note = self.get_object()
             company = credit_note.company
             
             # Verify user has access to this company
@@ -205,27 +325,24 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     'error': 'KRA configuration not found for this company'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            from kra.services import KRACreditNoteService
+            from kra.services import KRAService
             
-            # Initialize KRA service with company
-            kra_service = KRACreditNoteService(company.id)
+            kra_service = KRAService(str(company.id))
             
-            # Submit to KRA - actual implementation (use credit_note.id, not credit_note_id)
-            result = kra_service.submit_to_kra(credit_note.id)
+            result = kra_service.submit_credit_note_to_kra(str(credit_note.id))
             
             if result['success']:
                 submission = result['submission']
-                response_data = {
+                return Response({
                     'success': True,
                     'message': 'Credit note successfully submitted to KRA',
                     'submission_id': str(submission.id),
-                    'kra_credit_note_number': submission.kra_credit_note_number,
+                    'kra_invoice_number': submission.kra_invoice_number,  # Same field as invoices
                     'receipt_signature': submission.receipt_signature,
                     'qr_code_data': submission.qr_code_data,
                     'status': submission.status,
                     'kra_response': result.get('kra_response', {})
-                }
-                return Response(response_data, status=status.HTTP_200_OK)
+                })
             else:
                 return Response({
                     'success': False, 
@@ -237,7 +354,19 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'success': False, 
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
+    
+    @action(detail=True, methods=['get'])
+    def download_pdf(self, request, pk=None):
+        """Generate and download PDF for credit note"""
+        try:
+            credit_note = self.get_object()
+            return generate_credit_note_pdf(request, str(credit_note.id))
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'Failed to generate PDF: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=True, methods=['get'])
     def line_items(self, request, pk=None):
         """Get all line items for a specific credit note"""
@@ -274,14 +403,15 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
 
             # Proceed with sync
             service = QuickBooksCreditNoteService(active_company)
-            synced_count = service.sync_all_credit_notes()
+            success_count, failed_count = service.sync_all_credit_notes()
 
             company_serializer = CompanyInfoSerializer(active_company)
 
             return Response({
                 'success': True,
                 'message': f'Successfully synced credit notes for {active_company.name}',
-                'synced_count': synced_count,
+                'synced_count': success_count,
+                'failed_count': failed_count,
                 'company_info': company_serializer.data
             })
 
@@ -322,7 +452,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             total=Sum('balance')
         )['total'] or 0
         
-        # KRA statistics
+        # KRA statistics - using the same KRAInvoiceSubmission model
         kra_validated_credit_notes = CreditNote.objects.filter(
             company=active_company,
             kra_submissions__status__in=['success', 'signed']
@@ -356,10 +486,10 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
         recent_credit_notes = CreditNote.objects.filter(
             company=active_company
         ).select_related('company', 'related_invoice').prefetch_related(
-            Prefetch('kra_submissions', queryset=KRACreditNoteSubmission.objects.order_by('-created_at'))
+            Prefetch('kra_submissions', queryset=KRAInvoiceSubmission.objects.order_by('-created_at'))
         ).order_by('-created_at')[:10]
 
-        serializer = self.get_serializer(recent_credit_notes, many=True)
+        serializer = CreditNoteSummarySerializer(recent_credit_notes, many=True)
 
         return Response({
             'success': True,

@@ -335,7 +335,7 @@ from django.db import transaction
 from django.utils import timezone
 from companies.models import Company
 from creditnote.models import CreditNote
-from .models import KRACompanyConfig, KRACreditNoteCounter, KRACreditNoteSubmission
+from kra.models import KRACompanyConfig
 
 class KRACreditNoteService:
     """Service for handling KRA credit note submissions"""
@@ -349,7 +349,7 @@ class KRACreditNoteService:
     def get_next_credit_note_number(self):
         """Get next sequential credit note number for KRA"""
         with transaction.atomic():
-            counter, created = KRACreditNoteCounter.objects.select_for_update().get_or_create(
+            counter, created = KRAInvoiceCounter.objects.select_for_update().get_or_create(
                 company=self.company,
                 defaults={'last_credit_note_number': 0}
             )
@@ -595,7 +595,7 @@ class KRACreditNoteService:
             payload = self.build_kra_payload(credit_note, kra_credit_note_number)
             
             # Create submission record
-            submission = KRACreditNoteSubmission.objects.create(
+            submission = KRAInvoiceSubmission.objects.create(
                 company=self.company,
                 credit_note=credit_note,
                 kra_credit_note_number=kra_credit_note_number,
