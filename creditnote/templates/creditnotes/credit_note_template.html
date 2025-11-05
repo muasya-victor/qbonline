@@ -1,0 +1,830 @@
+<!-- templates/creditnotes/credit_note_template.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Credit Note {{ credit_note.doc_number|default:credit_note.qb_credit_id }}</title>
+    <style>
+        /* Reset and Base Styles */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f9fafb;
+            color: #374151;
+            line-height: 1.4; /* Reduced from 1.5 */
+            font-size: 0.875rem; /* Slightly smaller base font */
+        }
+        
+        /* Print Styles */
+        @media print {
+            @page {
+                margin: 0.25in; /* Reduced from 0.5in */
+                size: letter;
+            }
+            body {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+                background: white;
+                font-size: 0.8rem; /* Even smaller for print */
+            }
+            .no-print {
+                display: none !important;
+            }
+            .break-inside-avoid {
+                page-break-inside: avoid;
+            }
+        }
+        
+        /* Layout Styles - COMPACT VERSION */
+        .container {
+            max-width: 56rem;
+            margin: 0 auto;
+        }
+        
+        .action-buttons {
+            padding: 0.5rem 1rem; /* Reduced padding */
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 0.5rem; /* Reduced gap */
+            margin-bottom: 0.5rem;
+        }
+        
+        .btn {
+            padding: 0.375rem 0.75rem; /* Smaller buttons */
+            border-radius: 0.375rem;
+            font-weight: 500;
+            text-decoration: none;
+            display: inline-block;
+            border: none;
+            cursor: pointer;
+            font-size: 0.75rem; /* Smaller font */
+            transition: background-color 0.2s;
+        }
+        
+        .btn-primary {
+            background-color: #2563eb;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #1d4ed8;
+        }
+        
+        .btn-secondary {
+            background-color: #4b5563;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background-color: #374151;
+        }
+        
+        /* Invoice Container - MORE COMPACT */
+        .invoice-container {
+            background: white;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); /* Lighter shadow */
+            margin-bottom: 1rem; /* Reduced margin */
+        }
+        
+        /* Header Section - COMPACT */
+        .invoice-header {
+            padding: 1rem 1.5rem; /* Reduced padding */
+        }
+        
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem; /* Reduced margin */
+        }
+        
+        .company-info {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem; /* Reduced gap */
+            flex: 1;
+        }
+        
+        .company-logo {
+            flex-shrink: 0;
+        }
+        
+        .logo-img {
+            height: 3rem; /* Smaller logo */
+            width: auto;
+            object-fit: contain;
+        }
+        
+        .company-details h1 {
+            font-size: 1.25rem; /* Smaller title */
+            font-weight: bold;
+            color: #111827;
+            margin-bottom: 0.25rem; /* Reduced margin */
+        }
+        
+        .company-address {
+            color: #374151;
+            font-size: 0.75rem; /* Smaller font */
+            margin-bottom: 0.25rem;
+            line-height: 1.2;
+        }
+        
+        .contact-info {
+            display: flex;
+            flex-direction: column;
+            gap: 0.125rem; /* Tighter spacing */
+            font-size: 0.75rem; /* Smaller font */
+            color: #4b5563;
+        }
+        
+        .contact-item {
+            display: flex;
+            align-items: center;
+        }
+        
+        .icon {
+            width: 0.875rem; /* Smaller icons */
+            height: 0.875rem;
+            margin-right: 0.375rem;
+        }
+        
+        /* Header Bottom - COMPACT */
+        .header-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            margin-top: 0.75rem; /* Reduced margin */
+        }
+        
+        .bill-to h2 {
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.25rem; /* Reduced margin */
+            font-size: 0.875rem; /* Smaller font */
+        }
+        
+        .bill-to-name {
+            color: #374151;
+            font-size: 0.875rem;
+        }
+        
+        .brand-line {
+            height: 0.375rem; /* Thinner brand line */
+            margin-top: 0.5rem;
+            background-color: {{ company.brand_color|default:'#0077C5' }};
+        }
+        
+        .invoice-meta {
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 0.5rem; /* Reduced gap */
+            flex: 1;
+        }
+        
+        .invoice-title {
+            background-color: {{ company.brand_color|default:'#0077C5' }};
+            color: white;
+            padding: 0.375rem 0.75rem; /* Reduced padding */
+            font-weight: bold;
+            font-size: 1rem; /* Smaller font */
+        }
+        
+        .date-info {
+            background-color: {{ company.brand_color|default:'#0077C5' }};
+            color: white;
+            padding: 0.375rem; /* Reduced padding */
+            display: flex;
+            align-items: center;
+            gap: 0.375rem;
+            min-width: 0;
+            flex-wrap: nowrap;
+            max-width: 100%;
+            font-size: 0.75rem; /* Smaller font */
+        }
+
+        .date-info span:first-of-type {
+            flex-shrink: 0;
+            min-width: 2rem; /* Smaller minimum width */
+        }
+
+        .date-info span:last-of-type {
+            min-width: 6rem; /* Smaller minimum width */
+            white-space: nowrap;
+            flex-shrink: 1;
+        }
+        
+        /* Products Table - ULTRA COMPACT */
+        .invoice-body {
+            padding: 1rem 1.5rem; /* Reduced padding */
+        }
+        
+        .table-container {
+            overflow: hidden;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.75rem; /* Smaller table font */
+        }
+        
+        thead tr {
+            background-color: {{ company.brand_color|default:'#0077C5' }};
+            color: white;
+        }
+        
+        th {
+            padding: 0.5rem 0.75rem; /* Reduced padding */
+            text-align: left;
+            font-size: 0.7rem; /* Smaller font */
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-right: 1px solid #d1d5db;
+        }
+        
+        th:last-child {
+            border-right: none;
+        }
+        
+        th.text-center {
+            text-align: center;
+        }
+        
+        /* More compact column widths */
+        .col-item { width: 3rem; }      /* Smaller item column */
+        .col-desc { width: auto; }
+        .col-tax { width: 4rem; }       /* Smaller tax column */
+        .col-qty { width: 3rem; }       /* Smaller quantity column */
+        .col-price { width: 5rem; }     /* Smaller price column */
+        .col-amount { width: 5rem; }    /* Smaller amount column */
+        
+        tbody tr:nth-child(even) {
+            background-color: #f9fafb;
+        }
+        
+        tbody tr:nth-child(odd) {
+            background-color: white;
+        }
+        
+        td {
+            padding: 0.5rem 0.75rem; /* Reduced padding */
+            border-right: 1px solid #d1d5db;
+            font-size: 0.75rem; /* Smaller font */
+            line-height: 1.2;   /* Tighter line height */
+        }
+        
+        td:last-child {
+            border-right: none;
+        }
+        
+        .item-number {
+            font-weight: 500;
+            color: #111827;
+        }
+        
+        .item-name {
+            font-weight: 500;
+            color: #111827;
+            font-size: 0.75rem; /* Smaller font */
+        }
+        
+        .item-description {
+            color: #4b5563;
+            font-size: 0.7rem;  /* Smaller font */
+            margin-top: 0.125rem; /* Reduced margin */
+            line-height: 1.1;   /* Tighter line height */
+        }
+        
+        .text-center {
+            text-align: center;
+        }
+        
+        .text-right {
+            text-align: right;
+        }
+        
+        /* Totals Section - COMPACT */
+        .totals-section {
+            display: flex;
+            justify-content: flex-end;
+            padding-top: 1rem; /* Reduced padding */
+            margin-top: 0.75rem; /* Reduced margin */
+        }
+        
+        .totals-container {
+            width: 16rem; /* Narrower totals */
+        }
+        
+        .total-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.375rem 0; /* Reduced padding */
+            border-bottom: 1px solid #e5e7eb;
+            font-size: 0.75rem; /* Smaller font */
+        }
+        
+        .total-row:last-child {
+            border-bottom: none;
+        }
+        
+        .total-main {
+            border-top: 2px solid #9ca3af;
+            padding: 0.5rem 0; /* Reduced padding */
+        }
+        
+        .total-due {
+            background-color: {{ company.brand_color|default:'#0077C5' }};
+            color: white;
+            display: flex;
+            justify-content: space-between;
+            padding: 0.375rem 0.75rem; /* Reduced padding */
+            margin-top: 0.375rem;
+            font-size: 0.75rem; /* Smaller font */
+        }
+        
+        .total-label {
+            color: #374151;
+        }
+        
+        .total-amount {
+            font-weight: 500;
+            color: #111827;
+        }
+        
+        .total-main .total-label,
+        .total-main .total-amount {
+            font-size: 0.875rem; /* Smaller font */
+            font-weight: 600;
+        }
+        
+        .total-due .total-label,
+        .total-due .total-amount {
+            font-size: 0.875rem; /* Smaller font */
+            font-weight: 600;
+            color: white;
+        }
+        
+        /* Tax Summary - COMPACT */
+        .tax-summary {
+            margin-top: 1rem; /* Reduced margin */
+            padding-top: 1rem; /* Reduced padding */
+        }
+        
+        .tax-summary h2 {
+            font-weight: 600;
+            font-size: 1rem; /* Smaller font */
+            color: #6b7280;
+            margin-bottom: 0.5rem; /* Reduced margin */
+        }
+        
+        .tax-table {
+            font-size: 0.75rem; /* Smaller font */
+        }
+        
+        .tax-table th {
+            padding: 0.5rem 0.75rem; /* Reduced padding */
+            text-align: left;
+            font-weight: 600;
+        }
+        
+        .tax-table td {
+            padding: 0.5rem 0.75rem; /* Reduced padding */
+            border-top: 1px solid #d1d5db;
+        }
+        
+        /* QR Code Section - COMPACT */
+        .qr-section {
+            margin-top: 1rem; /* Reduced margin */
+            padding-top: 1rem; /* Reduced padding */
+            border-top: 1px solid #d1d5db;
+        }
+        
+        .qr-container {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem; /* Reduced gap */
+        }
+        
+        .qr-code {
+            background: white;
+            padding: 0.375rem; /* Reduced padding */
+            border: 1px solid #d1d5db;
+            flex-shrink: 0;
+        }
+        
+        .qr-img {
+            width: 4rem; /* Smaller QR code */
+            height: 4rem;
+        }
+        
+        .qr-info h3 {
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.25rem; /* Reduced margin */
+            font-size: 0.875rem; /* Smaller font */
+        }
+        
+        .qr-details {
+            font-size: 0.7rem; /* Smaller font */
+            color: #4b5563;
+            line-height: 1.2; /* Tighter line height */
+        }
+        
+        /* Notes Section - COMPACT */
+        .notes-section {
+            margin-top: 1rem; /* Reduced margin */
+            padding-top: 1rem; /* Reduced padding */
+            border-top: 1px solid #d1d5db;
+        }
+        
+        .notes-title {
+            font-size: 0.875rem; /* Smaller font */
+            font-weight: 600;
+            color: #111827;
+            margin-bottom: 0.5rem; /* Reduced margin */
+            display: flex;
+            align-items: center;
+        }
+        
+        .notes-container {
+            background-color: #f9fafb;
+            padding: 0.75rem; /* Reduced padding */
+            border-radius: 0.25rem; /* Smaller radius */
+            border: 1px solid #e5e7eb;
+            font-size: 0.75rem; /* Smaller font */
+        }
+        
+        .note-item {
+            margin-bottom: 0.5rem; /* Reduced margin */
+        }
+        
+        .note-item:last-child {
+            margin-bottom: 0;
+        }
+        
+        .note-label {
+            font-size: 0.7rem; /* Smaller font */
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 0.125rem; /* Reduced margin */
+        }
+        
+        .note-content {
+            color: #111827;
+        }
+        
+        .note-content.internal {
+            color: #4b5563;
+        }
+        
+        /* Footer - COMPACT */
+        .invoice-footer {
+            margin-top: 1rem; /* Reduced margin */
+            padding-top: 1rem; /* Reduced padding */
+            border-top: 1px solid #d1d5db;
+        }
+        
+        .footer-text {
+            font-size: 0.7rem; /* Smaller font */
+            color: #4b5563;
+            text-align: center;
+        }
+        
+        /* Utility Classes */
+        .font-medium { font-weight: 500; }
+        .font-semibold { font-weight: 600; }
+        .font-bold { font-weight: 700; }
+        .text-sm { font-size: 0.75rem; }
+        .text-lg { font-size: 0.875rem; }
+        .text-xl { font-size: 1rem; }
+        .text-2xl { font-size: 1.125rem; }
+        
+        /* Currency formatting */
+        .currency-symbol {
+            font-weight: 600;
+        }
+
+        /* Compact row styling for line items */
+        .compact-row {
+            min-height: 1.5rem; /* Minimum row height */
+        }
+
+        /* Even more compact table variant for few items */
+        .table-ultra-compact th,
+        .table-ultra-compact td {
+            padding: 0.375rem 0.5rem; /* Even smaller padding */
+            font-size: 0.7rem; /* Even smaller font */
+        }
+
+        .table-ultra-compact .item-name {
+            font-size: 0.7rem;
+        }
+    </style>
+</head>
+<body>
+    <!-- Action buttons - hidden when printing -->
+    <div class="no-print action-buttons">
+        <div class="button-group">
+            <a href="{% url 'credit-note-pdf' credit_note.id %}" class="btn btn-primary">
+                Download PDF
+            </a>
+            <button onclick="window.print()" class="btn btn-secondary">
+                Print Credit Note
+            </button>
+        </div>
+    </div>
+
+    <!-- Credit Note Container -->
+    <div class="container">
+        <div class="invoice-container break-inside-avoid">
+            <!-- Header Section -->
+            <div class="invoice-header">
+                <div class="header-top">
+                    <!-- Company Logo and Info -->
+                    <div class="company-info">
+                        {% if company.logo_url and company.invoice_logo_enabled %}
+                        <div class="company-logo">
+                            <img src="{{ company.logo_url }}" 
+                                 alt="{{ company.name }} logo" 
+                                 class="logo-img"
+                                 onerror="this.style.display='none'">
+                        </div>
+                        {% endif %}
+                        
+                        <div class="company-details">
+                            <h1>{{ company.qb_company_name|default:company.name }}</h1>
+                            {% if company.qb_address %}
+                            <p class="company-address">
+                                {% if company.qb_address.Line1 %}{{ company.qb_address.Line1 }}<br>{% endif %}
+                                {% if company.qb_address.Line2 %}{{ company.qb_address.Line2 }}<br>{% endif %}
+                                {% if company.qb_address.City %}{{ company.qb_address.City }}, {% endif %}
+                                {% if company.qb_address.CountrySubDivisionCode %}{{ company.qb_address.CountrySubDivisionCode }} {% endif %}
+                                {% if company.qb_address.PostalCode %}{{ company.qb_address.PostalCode }}{% endif %}
+                            </p>
+                            {% endif %}
+                            
+                            <div class="contact-info">
+                                {% if company.qb_phone %}
+                                <div class="contact-item">
+                                    <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"/>
+                                    </svg>
+                                    <span>{{ company.qb_phone }}</span>
+                                </div>
+                                {% endif %}
+                                
+                                {% if company.qb_email %}
+                                <div class="contact-item">
+                                    <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                                    </svg>
+                                    <span>{{ company.qb_email }}</span>
+                                </div>
+                                {% endif %}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="header-bottom">
+                    <!-- Bill To Section -->
+                    <div class="bill-to">
+                        <h2>BILL TO</h2>
+                        <div class="bill-to-name">{{ credit_note.customer_name }}</div>
+                        <div class="brand-line"></div>
+                    </div>
+
+                    <!-- Credit Note Header Info -->
+                    <div class="invoice-meta">
+                        <div class="invoice-title">
+                            CREDIT NOTE {{ credit_note.doc_number|default:credit_note.qb_credit_id }}
+                        </div>
+
+                        <div class="date-info">
+                            <span>Date:</span>
+                            <span>{{ credit_note.txn_date|date:"M j, Y" }}</span>
+                        </div>
+
+                        {% if credit_note.related_invoice %}
+                        <div class="date-info">
+                            <span>Ref Invoice:</span>
+                            <span>{{ credit_note.related_invoice.doc_number }}</span>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Products Table -->
+            <div class="invoice-body">
+                <div class="table-container {% if line_items|length <= 8 %}table-ultra-compact{% endif %}">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th class="col-item">#Item No</th>
+                                <th class="col-desc">Description</th>
+                                <th class="col-tax text-center">Tax</th>
+                                <th class="col-qty text-center">Qty</th>
+                                <th class="col-price text-center">Unit Price</th>
+                                <th class="col-amount text-center">Amount</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for item in line_items %}
+                            <tr class="compact-row">
+                                <td>
+                                    <span class="item-number">{{ forloop.counter }}</span>
+                                </td>
+                                <td>
+                                    <div>
+                                        <div class="item-name">{{ item.item_name|default:"Item" }}</div>
+                                        {% if item.description %}
+                                        <div class="item-description">
+                                            {{ item.description }}
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                </td>
+                                <td class="text-center">
+                                    {{ item.tax_amount|default:0|floatformat:2 }}
+                                </td>
+                                <td class="text-center">{{ item.qty|floatformat:2 }}</td>
+                                <td class="text-center">
+                                    {{ item.unit_price|floatformat:2 }}
+                                </td>
+                                <td class="text-center font-medium">
+                                    {{ item.amount|floatformat:2 }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Totals Section -->
+                <div class="totals-section">
+                    <div class="totals-container">
+                        <div class="total-row">
+                            <span class="total-label">SUBTOTAL:</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ credit_note.subtotal|default:credit_note.total_amt|floatformat:2 }}
+                            </span>
+                        </div>
+                        
+                        <div class="total-row">
+                            <span class="total-label">TOTAL TAX:</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ credit_note.tax_total|default:0|floatformat:2 }}
+                            </span>
+                        </div>
+
+                        <div class="total-row total-main">
+                            <span class="total-label">Total Credit:</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ credit_note.total_amt|floatformat:2 }}
+                            </span>
+                        </div>
+
+                        <div class="total-due">
+                            <span class="total-label">Credit Available:</span>
+                            <span class="total-amount">
+                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ credit_note.balance|floatformat:2 }}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tax Summary -->
+                <div class="tax-summary">
+                    <h2>TAX SUMMARY</h2>
+                    <div class="table-container tax-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>RATE</th>
+                                    <th>TAX</th>
+                                    <th>NET</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>{{ credit_note.tax_percent|default:0|floatformat:2 }}%</td>
+                                    <td>
+                                        <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ credit_note.tax_total|default:0|floatformat:2 }}
+                                    </td>
+                                    <td>
+                                        <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ credit_note.subtotal|default:0|floatformat:2 }}
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- KRA QR Code Section -->
+                {% if kra_submission and kra_submission.qr_code_data %}
+                <div class="qr-section">
+                    <div class="qr-container">
+                        <div class="qr-code">
+                            {% if qr_code %}
+                            <img src="data:image/png;base64,{{ qr_code }}" 
+                                alt="KRA QR Code" 
+                                class="qr-img">
+                            {% else %}
+                            <div style="width: 4rem; height: 4rem; background: #f3f4f6; display: flex; align-items: center; justify-content: center; border: 1px dashed #d1d5db;">
+                                <span style="font-size: 0.6rem; text-align: center; color: #6b7280;">QR Code<br>Available</span>
+                            </div>
+                            {% endif %}
+                        </div>
+                        <div class="qr-info">
+                            <h3>KRA VALIDATION</h3>
+                            <div class="qr-details">
+                                Status: <span class="font-semibold" style="color: {% if kra_submission.status == 'success' %}#10b981{% else %}#ef4444{% endif %};">
+                                    {{ kra_submission.status|title }}
+                                </span><br>
+                                Receipt: {{ kra_submission.receipt_signature }}<br>
+                                Date: {{ kra_submission.created_at|date:"M j, Y" }}
+                            </div>
+                            <div style="margin-top: 0.5rem;">
+                                <a href="{{ kra_submission.qr_code_data }}" 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style="color: #2563eb; text-decoration: underline; font-size: 0.7rem;">
+                                    View KRA Receipt Online
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Notes Section -->
+                {% if credit_note.customer_memo or credit_note.private_note %}
+                <div class="notes-section">
+                    <h3 class="notes-title">
+                        <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Notes
+                    </h3>
+                    <div class="notes-container">
+                        {% if credit_note.customer_memo %}
+                        <div class="note-item">
+                            <div class="note-label">Customer Message:</div>
+                            <div class="note-content">{{ credit_note.customer_memo }}</div>
+                        </div>
+                        {% endif %}
+                        {% if credit_note.private_note %}
+                        <div class="note-item">
+                            <div class="note-label">Internal Notes:</div>
+                            <div class="note-content internal">{{ credit_note.private_note }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Currency formatting script -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const currencyCode = '{{ company.currency_code|default:"USD" }}';
+            const currencyElements = document.querySelectorAll('.currency-symbol');
+            
+            currencyElements.forEach(element => {
+                const customSymbols = {
+                    'USD': '$',
+                    'EUR': '€',
+                    'GBP': '£',
+                    'JPY': '¥',
+                    'KES': 'KSh ',
+                    'UGX': 'USh ',
+                    'TZS': 'TSh ',
+                    'NGN': '₦',
+                    'GHS': 'GH₵ ',
+                    'ZAR': 'R'
+                };
+                
+                if (customSymbols[currencyCode]) {
+                    element.textContent = customSymbols[currencyCode];
+                } else {
+                    element.textContent = currencyCode + ' ';
+                }
+            });
+        });
+    </script>
+</body>
+</html>
