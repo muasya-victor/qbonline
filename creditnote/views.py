@@ -329,7 +329,12 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             'latest_submission': KRASubmissionSerializer(submissions.first()).data if submissions.exists() else None
         })
 
-    # In your view - update the response
+    # creditnote/views.py - Update the submit_to_kra action
+    from rest_framework.decorators import action
+    from rest_framework.response import Response
+    from rest_framework import status
+    from django.shortcuts import get_object_or_404
+
     @action(detail=True, methods=['post'])
     def submit_to_kra(self, request, pk=None):
         """Submit a specific credit note to KRA using the credit note service"""
@@ -351,28 +356,35 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     'error': 'KRA configuration not found for this company'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Import the correct credit note service
             from kra.services import KRACreditNoteService
             
-            # Initialize the service with company ID
             kra_service = KRACreditNoteService(str(company.id))
             
-            # Submit the credit note using the service method
             result = kra_service.submit_to_kra(str(credit_note.id))
             
             if result['success']:
                 submission = result['submission']
-                return Response({
+                response_data = {
                     'success': True,
                     'message': 'Credit note successfully submitted to KRA',
                     'submission_id': str(submission.id),
-                    'kra_credit_note_number': result.get('kra_credit_note_number', submission.kra_invoice_number),  # Fallback
-                    'trd_credit_note_no': result.get('trd_credit_note_no', submission.trd_invoice_no),  # Fallback
                     'receipt_signature': submission.receipt_signature,
                     'qr_code_data': submission.qr_code_data,
                     'status': submission.status,
                     'kra_response': result.get('kra_response', {})
-                })
+                }
+                
+                if 'kra_credit_note_number' in result:
+                    response_data['kra_credit_note_number'] = result['kra_credit_note_number']
+                else:
+                    response_data['kra_credit_note_number'] = submission.kra_invoice_number
+                    
+                if 'trd_credit_note_no' in result:
+                    response_data['trd_credit_note_no'] = result['trd_credit_note_no']
+                else:
+                    response_data['trd_credit_note_no'] = submission.trd_invoice_no
+                
+                return Response(response_data)
             else:
                 return Response({
                     'success': False, 

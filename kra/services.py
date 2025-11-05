@@ -555,18 +555,18 @@ class KRACreditNoteService:
         if not self.kra_config:
             raise ValueError(f"KRA configuration not found for company: {self.company.name}")
     
-    def get_next_credit_note_number(self):
-        """Get next sequential credit note number for KRA"""
+    def get_next_kra_number(self):
+        """Get next sequential number from the shared KRA counter"""
         with transaction.atomic():
             counter, created = KRAInvoiceCounter.objects.select_for_update().get_or_create(
                 company=self.company,
-                defaults={'last_credit_note_number': 0}
+                defaults={'last_invoice_number': 0}
             )
-            counter.last_credit_note_number += 1
+            counter.last_invoice_number += 1
             counter.save()
-            return counter.last_credit_note_number
+            return counter.last_invoice_number
     
-    def map_tax_category(self, tax_code_ref, tax_percent):  # CHANGED: tax_rate → tax_percent
+    def map_tax_category(self, tax_code_ref, tax_percent):
         """
         Map QuickBooks tax codes to KRA tax categories
         Same logic as invoice service
@@ -634,7 +634,6 @@ class KRACreditNoteService:
         }
         
         for item in line_items:
-            # CHANGED: item.tax_rate → item.tax_percent
             tax_category = self.map_tax_category(item.tax_code_ref, item.tax_percent)
             
             # Use the actual taxable amount from the line item
@@ -667,7 +666,7 @@ class KRACreditNoteService:
         else:
             return date_obj.strftime('%Y%m%d%H%M%S')
     
-    def build_kra_payload(self, credit_note, kra_credit_note_number):
+    def build_kra_payload(self, credit_note, kra_number):
         """Build KRA API payload from QuickBooks credit note"""
         
         # Calculate tax summary
@@ -676,7 +675,6 @@ class KRACreditNoteService:
         # Build item list
         item_list = []
         for idx, line_item in enumerate(credit_note.line_items.all(), 1):
-            # CHANGED: line_item.tax_rate → line_item.tax_percent
             tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_percent)
             
             # Calculate taxable amount correctly
@@ -734,8 +732,8 @@ class KRACreditNoteService:
         payload = {
             "tin": self.kra_config.tin,
             "bhfId": self.kra_config.bhf_id,
-            "trdInvcNo": credit_note.doc_number or f"CN-{kra_credit_note_number}",
-            "invcNo": kra_credit_note_number,
+            "trdInvcNo": credit_note.doc_number or f"CN-{kra_number}",
+            "invcNo": kra_number,
             "orgInvcNo": original_invoice_ref or 0,  # Original invoice number for credit notes
             "custTin": credit_note.customer_ref_value or "",
             "custNm": credit_note.customer_name or "",
@@ -790,7 +788,6 @@ class KRACreditNoteService:
         
         return payload
     
-    # kra/services_credit_note.py - Updated submit_to_kra method
     def submit_to_kra(self, credit_note_id):
         """Main method to submit credit note to KRA"""
         try:
@@ -800,22 +797,27 @@ class KRACreditNoteService:
                 company=self.company
             )
             
-            # Get next sequential credit note number
-            kra_credit_note_number = self.get_next_credit_note_number()
+            # Get next sequential number from SHARED counter
+            kra_number = self.get_next_kra_number()
             
             # Build payload
-            payload = self.build_kra_payload(credit_note, kra_credit_note_number)
+            payload = self.build_kra_payload(credit_note, kra_number)
             
-            # Create submission record - USE EXISTING FIELDS
-            submission = KRAInvoiceSubmission.objects.create(
-                company=self.company,
-                credit_note=credit_note,  # Link to credit note
-                kra_invoice_number=kra_credit_note_number,  # Use existing field
-                trd_invoice_no=payload['trdInvcNo'],  # Use existing field
-                document_type='credit_note',  # Add this field if it exists
-                submitted_data=payload,
-                status='submitted'
-            )
+            # Create submission record - use existing fields only
+            submission_data = {
+                'company': self.company,
+                'credit_note': credit_note,
+                'kra_invoice_number': kra_number,
+                'trd_invoice_no': payload['trdInvcNo'],
+                'submitted_data': payload,
+                'status': 'submitted'
+            }
+            
+            # Add document_type field only if it exists in the model
+            if hasattr(KRAInvoiceSubmission, 'document_type'):
+                submission_data['document_type'] = 'credit_note'
+            
+            submission = KRAInvoiceSubmission.objects.create(**submission_data)
             
             # Prepare headers
             headers = {
@@ -854,8 +856,8 @@ class KRACreditNoteService:
                         'success': True,
                         'submission': submission,
                         'kra_response': response_data,
-                        'kra_credit_note_number': kra_credit_note_number,  # Return in response
-                        'trd_credit_note_no': payload['trdInvcNo']  # Return in response
+                        'kra_credit_note_number': kra_number,
+                        'trd_credit_note_no': payload['trdInvcNo']
                     }
                 else:
                     # KRA returned error
@@ -897,7 +899,7 @@ class KRACreditNoteService:
                 'success': False,
                 'error': str(e)
             }
-        
+    
     def generate_qr_code_data(self, kra_data):
         """Generate QR code data from KRA response"""
         tin = self.kra_config.tin
