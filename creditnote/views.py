@@ -453,7 +453,6 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'message': 'An error occurred during sync'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # ✅ NEW: Smart Sync for Credit Notes
     @action(detail=False, methods=['post'], url_path='smart-sync', url_name='smart-sync-credit-notes')
     def smart_sync_credit_notes(self, request):
         """Smart sync credit notes with automatic customer resolution"""
@@ -466,14 +465,14 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             service = QuickBooksCreditNoteService(active_company)
-            success_count, failed_count, stub_customers_created = service.sync_all_credit_notes()
+            # FIX: Only unpack 2 values since sync_all_credit_notes returns Tuple[int, int]
+            success_count, failed_count = service.sync_all_credit_notes()
             
             return Response({
                 "success": True,
-                "message": f"Smart sync completed: {success_count} credit notes processed, {stub_customers_created} stub customers created.",
+                "message": f"Smart sync completed: {success_count} credit notes processed.",
                 "synced_count": success_count,
-                "failed_count": failed_count,
-                "stub_customers_created": stub_customers_created
+                "failed_count": failed_count
             })
             
         except Exception as e:
@@ -481,7 +480,8 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 "success": False,
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        
+        
     # ✅ NEW: Analyze Customer Links for Credit Notes
     @action(detail=False, methods=['get'], url_path='analyze-customer-links', url_name='analyze-customer-links')
     def analyze_customer_links(self, request):
