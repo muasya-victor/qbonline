@@ -171,3 +171,6 @@ class KRAInvoiceSubmission(TimeStampModel):
     def can_retry(self):
         """Check if submission can be retried"""
         return self.status in ['failed', 'pending']
+    
+
+    

@@ -17,6 +17,7 @@ class CreditNote(TimeStampModel):
     # Customer info
     customer_ref_value = models.CharField(max_length=50, blank=True, null=True)
     customer_name = models.CharField(max_length=255, blank=True, null=True)
+
     
     # Amounts
     total_amt = models.DecimalField(max_digits=15, decimal_places=2)

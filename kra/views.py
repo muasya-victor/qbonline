@@ -15,7 +15,6 @@ def validate_invoice_to_kra(request, invoice_id):
     Validate and submit invoice to KRA
     """
     try:
-        # Get invoice and verify user has access to company
         invoice = get_object_or_404(Invoice, id=invoice_id)
         company = invoice.company
         
@@ -110,18 +109,36 @@ def get_company_kra_submissions(request, company_id):
     
     submission_data = []
     for submission in submissions:
+        # Get document details based on document type
+        if submission.document_type == 'invoice' and submission.invoice:
+            doc_number = submission.invoice.doc_number
+            customer_name = submission.invoice.customer_name
+            total_amount = float(submission.invoice.total_amt)
+        elif submission.document_type == 'credit_note' and submission.credit_note:
+            doc_number = submission.credit_note.doc_number
+            customer_name = submission.credit_note.customer_name
+            total_amount = float(submission.credit_note.total_amt)
+        else:
+            # Fallback for invalid records
+            doc_number = "N/A"
+            customer_name = "Unknown"
+            total_amount = 0.0
+        
         submission_data.append({
             'id': str(submission.id),
-            'invoice_number': submission.invoice.doc_number,
+            'invoice_number': doc_number,
             'kra_invoice_number': submission.kra_invoice_number,
-            'customer_name': submission.invoice.customer_name,
-            'total_amount': float(submission.invoice.total_amt),
+            'customer_name': customer_name,
+            'total_amount': total_amount,
             'status': submission.status,
+            'document_type': submission.document_type,
             'submitted_at': submission.created_at,
-            'error_message': submission.error_message
+            'error_message': submission.error_message,
+            'trd_invoice_no': submission.trd_invoice_no
         })
     
     return Response({
         'company': company.name,
         'submissions': submission_data
     }, status=status.HTTP_200_OK)
+

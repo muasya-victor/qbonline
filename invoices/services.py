@@ -996,7 +996,7 @@ class QuickBooksCreditNoteService:
                     continue
             
             logger.info(f"Credit note sync completed: {success_count} successful, {failed_count} failed")
-            return success_count, failed_count  # Fixed: Now returns only 2 values instead of 3
+            return success_count, failed_count  
             
         except Exception as e:
             logger.error(f"Failed to sync credit notes for company {self.company.realm_id}: {str(e)}")

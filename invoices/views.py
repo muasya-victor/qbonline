@@ -315,7 +315,66 @@ class InvoiceViewSet(viewsets.ModelViewSet):
             'success': False,
             'error': 'Invoices can only be deleted via QuickBooks sync'
         }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+   
+   
+from kra.services import KRAInvoiceService
+from kra.models import KRACompanyConfig, KRAInvoiceSubmission
+from rest_framework.decorators import api_view, permission_classes
+from django.shortcuts import get_object_or_404
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def validate_invoice_to_kra(request, invoice_id):
+    """
+    Validate and submit invoice to KRA
+    """
+    try:
+        invoice = get_object_or_404(Invoice, id=invoice_id)
+        company = invoice.company
+        
+        # Verify user has access to this company
+        if not request.user.company_memberships.filter(company=company).exists():
+            return Response(
+                {'error': 'You do not have access to this company'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Check if KRA config exists
+        if not hasattr(company, 'kra_config'):
+            return Response(
+                {'error': 'KRA configuration not found for this company'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Submit to KRA
+        kra_service = KRAInvoiceService(company.id)
+        result = kra_service.submit_to_kra(invoice_id)
+        
+        if result['success']:
+            submission = result['submission']
+            response_data = {
+                'success': True,
+                'message': 'Invoice successfully submitted to KRA',
+                'submission_id': str(submission.id),
+                'kra_invoice_number': submission.kra_invoice_number,
+                'receipt_signature': submission.receipt_signature,
+                'qr_code_data': submission.qr_code_data,
+                'kra_response': result.get('kra_response', {})
+            }
+            return Response(response_data, status=status.HTTP_200_OK)
+        else:
+            return Response(
+                {'success': False, 'error': result['error']},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+    except Exception as e:
+        return Response(
+            {'success': False, 'error': str(e)},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     
+
 # views.py
 import os
 import qrcode
