@@ -329,6 +329,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             'latest_submission': KRASubmissionSerializer(submissions.first()).data if submissions.exists() else None
         })
 
+    # In your view - update the response
     @action(detail=True, methods=['post'])
     def submit_to_kra(self, request, pk=None):
         """Submit a specific credit note to KRA using the credit note service"""
@@ -365,8 +366,8 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     'success': True,
                     'message': 'Credit note successfully submitted to KRA',
                     'submission_id': str(submission.id),
-                    'kra_credit_note_number': submission.kra_credit_note_number,  # Specific to credit notes
-                    'trd_credit_note_no': submission.trd_credit_note_no,  # Specific to credit notes
+                    'kra_credit_note_number': result.get('kra_credit_note_number', submission.kra_invoice_number),  # Fallback
+                    'trd_credit_note_no': result.get('trd_credit_note_no', submission.trd_invoice_no),  # Fallback
                     'receipt_signature': submission.receipt_signature,
                     'qr_code_data': submission.qr_code_data,
                     'status': submission.status,

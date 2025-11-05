@@ -790,6 +790,7 @@ class KRACreditNoteService:
         
         return payload
     
+    # kra/services_credit_note.py - Updated submit_to_kra method
     def submit_to_kra(self, credit_note_id):
         """Main method to submit credit note to KRA"""
         try:
@@ -805,12 +806,13 @@ class KRACreditNoteService:
             # Build payload
             payload = self.build_kra_payload(credit_note, kra_credit_note_number)
             
-            # Create submission record
+            # Create submission record - USE EXISTING FIELDS
             submission = KRAInvoiceSubmission.objects.create(
                 company=self.company,
-                credit_note=credit_note,
-                kra_credit_note_number=kra_credit_note_number,
-                trd_credit_note_no=payload['trdInvcNo'],
+                credit_note=credit_note,  # Link to credit note
+                kra_invoice_number=kra_credit_note_number,  # Use existing field
+                trd_invoice_no=payload['trdInvcNo'],  # Use existing field
+                document_type='credit_note',  # Add this field if it exists
                 submitted_data=payload,
                 status='submitted'
             )
@@ -851,7 +853,9 @@ class KRACreditNoteService:
                     return {
                         'success': True,
                         'submission': submission,
-                        'kra_response': response_data
+                        'kra_response': response_data,
+                        'kra_credit_note_number': kra_credit_note_number,  # Return in response
+                        'trd_credit_note_no': payload['trdInvcNo']  # Return in response
                     }
                 else:
                     # KRA returned error
@@ -893,7 +897,7 @@ class KRACreditNoteService:
                 'success': False,
                 'error': str(e)
             }
-    
+        
     def generate_qr_code_data(self, kra_data):
         """Generate QR code data from KRA response"""
         tin = self.kra_config.tin
