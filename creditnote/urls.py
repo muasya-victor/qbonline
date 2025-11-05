@@ -9,8 +9,8 @@ router.register(r'credit-notes', CreditNoteViewSet, basename='creditnote')
 # Add URL patterns for custom actions that aren't auto-registered by the router
 urlpatterns = [
     path('', include(router.urls)),
-    path('credit-notes/<uuid:credit_note_id>/pdf/', generate_credit_note_pdf, name='credit-note-pdf'),
-    path('credit-notes/<uuid:credit_note_id>/html/', credit_note_detail_html, name='credit-note-html'),
+    path('credit-notes/pdf/<uuid:credit_note_id>/download/', generate_credit_note_pdf, name='credit-note-pdf'),
+    path('credit-notes/pdf/<uuid:credit_note_id>/', credit_note_detail_html, name='credit-note-html'),
     
     # Add these for your custom actions
     path('credit-notes/smart-sync/', CreditNoteViewSet.as_view({'post': 'smart_sync_invoices'}), name='creditnote-smart-sync'),
