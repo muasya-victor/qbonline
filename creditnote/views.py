@@ -331,7 +331,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['post'])
     def submit_to_kra(self, request, pk=None):
-        """Submit a specific credit note to KRA using the same service as invoices"""
+        """Submit a specific credit note to KRA using the credit note service"""
         try:
             credit_note = self.get_object()
             company = credit_note.company
@@ -350,11 +350,14 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     'error': 'KRA configuration not found for this company'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            from kra.services import KRAService
+            # Import the correct credit note service
+            from kra.services import KRACreditNoteService
             
-            kra_service = KRAService(str(company.id))
+            # Initialize the service with company ID
+            kra_service = KRACreditNoteService(str(company.id))
             
-            result = kra_service.submit_credit_note_to_kra(str(credit_note.id))
+            # Submit the credit note using the service method
+            result = kra_service.submit_to_kra(str(credit_note.id))
             
             if result['success']:
                 submission = result['submission']
@@ -362,7 +365,8 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     'success': True,
                     'message': 'Credit note successfully submitted to KRA',
                     'submission_id': str(submission.id),
-                    'kra_invoice_number': submission.kra_invoice_number,  # Same field as invoices
+                    'kra_credit_note_number': submission.kra_credit_note_number,  # Specific to credit notes
+                    'trd_credit_note_no': submission.trd_credit_note_no,  # Specific to credit notes
                     'receipt_signature': submission.receipt_signature,
                     'qr_code_data': submission.qr_code_data,
                     'status': submission.status,
@@ -379,7 +383,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'success': False, 
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
+        
     @action(detail=True, methods=['get'])
     def download_pdf(self, request, pk=None):
         """Generate and download PDF for credit note"""
