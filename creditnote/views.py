@@ -16,6 +16,8 @@ from .serializers import (
 from invoices.services import QuickBooksCreditNoteService
 from companies.models import ActiveCompany
 from kra.models import KRAInvoiceSubmission
+from customers.models import Customer
+from customers.services import QuickBooksCustomerService
 import requests
 import os
 import qrcode
@@ -258,12 +260,35 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             ).count()
         }
 
+        # Calculate customer stats for credit notes
+        total_credit_notes = paginator.count
+        credit_notes_with_customers = queryset.filter(
+            Q(customer_name__isnull=False) & ~Q(customer_name='')
+        ).count()
+        
+        # Simple heuristic for stub customers - adjust based on your actual stub detection logic
+        credit_notes_with_stub_customers = queryset.filter(
+            Q(customer_name__icontains='customer') | 
+            Q(customer_name__icontains='stub') |
+            Q(customer_name__isnull=True) |
+            Q(customer_name='')
+        ).count()
+
+        customer_link_quality = round((credit_notes_with_customers / total_credit_notes * 100), 2) if total_credit_notes > 0 else 0
+
         return Response({
             'success': True,
             'credit_notes': serializer.data,
             'pagination': pagination_info,
             'company_info': company_serializer.data,
-            'kra_stats': kra_stats
+            'kra_stats': kra_stats,
+            'stats': {
+                'total_credit_notes': total_credit_notes,
+                'credit_notes_with_customers': credit_notes_with_customers,
+                'credit_notes_without_customers': total_credit_notes - credit_notes_with_customers,
+                'credit_notes_with_stub_customers': credit_notes_with_stub_customers,
+                'customer_link_quality': customer_link_quality
+            }
         })
 
     def retrieve(self, request, *args, **kwargs):
@@ -426,6 +451,116 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'success': False,
                 'error': f'Sync failed: {str(e)}',
                 'message': 'An error occurred during sync'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # ✅ NEW: Smart Sync for Credit Notes
+    @action(detail=False, methods=['post'], url_path='smart-sync', url_name='smart-sync-credit-notes')
+    def smart_sync_credit_notes(self, request):
+        """Smart sync credit notes with automatic customer resolution"""
+        try:
+            active_company = get_active_company(request.user)
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            service = QuickBooksCreditNoteService(active_company)
+            success_count, failed_count, stub_customers_created = service.sync_all_credit_notes()
+            
+            return Response({
+                "success": True,
+                "message": f"Smart sync completed: {success_count} credit notes processed, {stub_customers_created} stub customers created.",
+                "synced_count": success_count,
+                "failed_count": failed_count,
+                "stub_customers_created": stub_customers_created
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # ✅ NEW: Analyze Customer Links for Credit Notes
+    @action(detail=False, methods=['get'], url_path='analyze-customer-links', url_name='analyze-customer-links')
+    def analyze_customer_links(self, request):
+        """Analyze customer link quality for credit notes"""
+        try:
+            active_company = get_active_company(request.user)
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get all credit notes for the company
+            credit_notes = CreditNote.objects.filter(company=active_company)
+            total_credit_notes = credit_notes.count()
+            
+            # Calculate customer link statistics
+            credit_notes_with_customers = credit_notes.filter(
+                Q(customer_name__isnull=False) & ~Q(customer_name='')
+            ).count()
+            
+            # More sophisticated stub detection based on your business logic
+            credit_notes_with_stub_customers = credit_notes.filter(
+                Q(customer_name__icontains='customer') | 
+                Q(customer_name__icontains='stub') |
+                Q(customer_name__isnull=True) |
+                Q(customer_name='')
+            ).count()
+            
+            # Get stub customers count from Customer model
+            stub_customers = Customer.objects.filter(company=active_company, is_stub=True).count()
+            
+            quality_score = (credit_notes_with_customers / total_credit_notes * 100) if total_credit_notes > 0 else 0
+
+            return Response({
+                "success": True,
+                "analysis": {
+                    "total_credit_notes": total_credit_notes,
+                    "credit_notes_with_customers": credit_notes_with_customers,
+                    "credit_notes_without_customers": total_credit_notes - credit_notes_with_customers,
+                    "stub_customers": stub_customers,
+                    "credit_notes_with_stub_customers": credit_notes_with_stub_customers,
+                    "quality_score": quality_score
+                }
+            })
+            
+        except Exception as e:
+            print(f"Error in analyze_customer_links for credit notes: {str(e)}")
+            return Response({
+                "success": False,
+                "error": str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # ✅ NEW: Enhance Stub Customers for Credit Notes
+    @action(detail=False, methods=['post'], url_path='enhance-stub-customers', url_name='enhance-stub-customers')
+    def enhance_stub_customers(self, request):
+        """Enhance stub customers with real QuickBooks data for credit notes"""
+        try:
+            active_company = get_active_company(request.user)
+            if not active_company:
+                return Response({
+                    "success": False,
+                    "error": "No active company found."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            customer_service = QuickBooksCustomerService(active_company)
+            enhanced_count, failed_count = customer_service.enhance_stub_customers()
+            
+            return Response({
+                "success": True,
+                "message": f"Enhanced {enhanced_count} stub customers. {failed_count} failed.",
+                "enhanced_count": enhanced_count,
+                "failed_count": failed_count
+            })
+            
+        except Exception as e:
+            return Response({
+                "success": False,
+                "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @action(detail=False, methods=['get'])
