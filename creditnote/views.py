@@ -49,10 +49,16 @@ def generate_credit_note_pdf(request, credit_note_id):
         kra_submission = credit_note.kra_submissions.filter(
             status__in=['success', 'signed']
         ).first()
+
+        if hasattr(company, 'brand_color') and company.brand_color:
+            brand_color = company.brand_color
+        else:
+            brand_color = '#dc2626'
         
         context = {
             'document': credit_note,
             'company': company,
+            'brand_color': brand_color,
             'kra_submission': kra_submission,
             'document_type': 'CREDIT NOTE',
             'line_items': credit_note.line_items.all().order_by('line_num')
