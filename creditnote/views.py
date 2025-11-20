@@ -30,6 +30,8 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 import base64
 from weasyprint import HTML
+from django.shortcuts import render
+
 
 def get_active_company(user):
     """Helper function to get active company with error handling"""
@@ -55,6 +57,8 @@ def generate_credit_note_pdf(request, credit_note_id):
             brand_color = company.brand_color
         else:
             brand_color = '#dc2626'
+
+        print(kra_submission)
         
         context = {
             'document': credit_note,

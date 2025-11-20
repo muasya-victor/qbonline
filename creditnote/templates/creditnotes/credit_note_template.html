@@ -771,6 +771,9 @@
                                     {{ kra_submission.status|title }}
                                 </span><br>
                                 Receipt: {{ kra_submission.receipt_signature }}<br>
+                                Receipt Number: {{ kra_submission.kra_invoice_number }}<br>
+                                Interna Data: {{ kra_submission.response_data.data.intrlData }}<br>
+                                Invoice Data: {{ kra_submission.response_data.data.sdcId }}/ {{ kra_submission.kra_invoice_number }}<br>
                                 Date: {{ kra_submission.created_at|date:"M j, Y" }}
                             </div>
                             <div style="margin-top: 0.5rem;">
@@ -787,7 +790,7 @@
                 {% endif %}
 
                 <!-- Notes Section -->
-                {% if document.customer_memo or document.private_note %}
+                {% comment %} {% if document.customer_memo or document.private_note %}
                 <div class="notes-section">
                     <h3 class="notes-title">
                         <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -810,14 +813,7 @@
                         {% endif %}
                     </div>
                 </div>
-                {% endif %}
-            </div>
-
-            <!-- Footer -->
-            <div class="creditnote-footer">
-                <p class="footer-text">
-                    This is a computer-generated credit note and requires no signature.
-                </p>
+                {% endif %} {% endcomment %}
             </div>
         </div>
     </div>
