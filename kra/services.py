@@ -545,6 +545,8 @@ from django.db import transaction
 from django.utils import timezone
 from companies.models import Company
 from creditnote.models import CreditNote
+from invoices.models import Invoice
+from customers.models import Customer
 from kra.models import KRACompanyConfig, KRAInvoiceCounter, KRAInvoiceSubmission
 
 class KRACreditNoteService:
@@ -586,14 +588,14 @@ class KRACreditNoteService:
         # Map common QuickBooks tax codes to KRA categories
         tax_code_mapping = {
             # VAT 16%
-            '13': 'B',  # Assuming "13" is 16% VAT in your QB
+            '13': 'B',  
             'TAX': 'B',
             'VAT': 'B',
             '16': 'B',
             '16%': 'B',
             
             # VAT 8%
-            '8': 'E',   # Assuming "8" is 8% VAT
+            '8': 'E',  
             'VAT8': 'E',
             '8%': 'E',
             
@@ -667,11 +669,65 @@ class KRACreditNoteService:
         else:
             return date_obj.strftime('%Y%m%d%H%M%S')
     
+    def get_customer_kra_pin(self, credit_note):
+        """Get customer KRA PIN from Customer model"""
+        customer_kra_pin = ""
+        
+        # Try to find the customer by customer_ref_value
+        if credit_note.customer_ref_value:
+            try:
+                customer = Customer.objects.filter(
+                    company=self.company,
+                    qb_customer_id=credit_note.customer_ref_value
+                ).first()
+                
+                if customer and customer.kra_pin:
+                    customer_kra_pin = customer.kra_pin
+            except Customer.DoesNotExist:
+                pass
+        
+        # If no customer found or no KRA PIN, check if credit_note has direct kra_pin field
+        if not customer_kra_pin and hasattr(credit_note, 'kra_pin') and credit_note.kra_pin:
+            customer_kra_pin = credit_note.kra_pin
+        
+        return customer_kra_pin
+    
+    def get_original_invoice_kra_number(self, credit_note):
+        """Get the original invoice's KRA number for orgInvcNo"""
+        original_kra_number = 0
+        
+        if credit_note.related_invoice:
+            try:
+                # Find the successful KRA submission for the original invoice
+                original_submission = KRAInvoiceSubmission.objects.filter(
+                    company=self.company,
+                    invoice=credit_note.related_invoice,
+                    status='success'
+                ).first()
+                
+                if original_submission:
+                    original_kra_number = original_submission.kra_invoice_number
+                else:
+                    # If no successful submission found, use the invoice's doc_number as fallback
+                    original_kra_number = credit_note.related_invoice.doc_number or "0"
+            except Exception as e:
+                print(f"Error getting original invoice KRA number: {str(e)}")
+                # Fallback to invoice doc_number
+                original_kra_number = credit_note.related_invoice.doc_number or "0"
+        
+        return original_kra_number
+    
     def build_kra_payload(self, credit_note, kra_number):
         """Build KRA API payload from QuickBooks credit note"""
         
         # Calculate tax summary
         tax_summary = self.calculate_tax_summary(credit_note.line_items.all())
+        
+        # Get customer KRA PIN
+        customer_kra_pin = self.get_customer_kra_pin(credit_note)
+        
+        # Get original invoice KRA number for orgInvcNo
+        original_invoice_kra_number = self.get_original_invoice_kra_number(credit_note)
         
         # Build item list
         item_list = []
@@ -724,19 +780,14 @@ class KRACreditNoteService:
             tax_summary['E']['tax_amount']
         ])
         
-        # Get original invoice reference if available
-        original_invoice_ref = ""
-        if credit_note.related_invoice:
-            original_invoice_ref = credit_note.related_invoice.doc_number or ""
-        
         # Build main payload for credit note
         payload = {
             "tin": self.kra_config.tin,
             "bhfId": self.kra_config.bhf_id,
             "trdInvcNo": credit_note.doc_number or f"CN-{kra_number}",
             "invcNo": kra_number,
-            "orgInvcNo": original_invoice_ref or 0,  # Original invoice number for credit notes
-            "custTin": credit_note.customer_ref_value or "",
+            "orgInvcNo": original_invoice_kra_number,  # Use original invoice's KRA number
+            "custTin": customer_kra_pin,  # Use customer's actual KRA PIN
             "custNm": credit_note.customer_name or "",
             "salesTyCd": "N",  # Normal sale
             "rcptTyCd": "R",  # Return/credit note (different from invoice)
@@ -769,13 +820,13 @@ class KRACreditNoteService:
             "totTaxAmt": float(total_tax_amount),        # Use calculated total tax
             "totAmt": float(credit_note.total_amt),
             "prchrAcptcYn": "Y",
-            "remark": credit_note.private_note or f"Credit Note for {original_invoice_ref}" if original_invoice_ref else "Credit Note",
+            "remark": credit_note.private_note or f"Credit Note for invoice {original_invoice_kra_number}",
             "regrId": "Admin",
             "regrNm": "Admin",
             "modrId": "Admin",
             "modrNm": "Admin",
             "receipt": {
-                "custTin": credit_note.customer_ref_value or "",
+                "custTin": customer_kra_pin,  # Use customer's actual KRA PIN here too
                 "custMblNo": "",
                 "rcptPbctDt": self.transform_date_format(timezone.now()),
                 "trdeNm": self.kra_config.trade_name,
@@ -786,14 +837,19 @@ class KRACreditNoteService:
             },
             "itemList": item_list
         }
+
+        print("the payload ", payload)
         
         return payload
     
     def submit_to_kra(self, credit_note_id):
         """Main method to submit credit note to KRA"""
         try:
-            # Get credit note with line items
-            credit_note = CreditNote.objects.select_related('company', 'related_invoice').prefetch_related('line_items').get(
+            # Get credit note with line items and related invoice
+            credit_note = CreditNote.objects.select_related(
+                'company', 
+                'related_invoice'
+            ).prefetch_related('line_items').get(
                 id=credit_note_id, 
                 company=self.company
             )

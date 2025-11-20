@@ -1,10 +1,55 @@
-# creditnote/serializers.py
 from rest_framework import serializers
 from .models import CreditNote, CreditNoteLine
 from invoices.models import Invoice
 from companies.models import Company
 from kra.models import KRAInvoiceSubmission
 from invoices.serializers import KRASubmissionSerializer
+from customers.models import Customer
+
+class SimpleCustomerSerializer(serializers.ModelSerializer):
+    """Simplified customer serializer for invoice dropdown"""
+    
+    class Meta:
+        model = Customer
+        fields = ['id', 'display_name', 'company_name', 'kra_pin']
+
+class InvoiceDropdownSerializer(serializers.ModelSerializer):
+    """Serializer for invoice dropdown with customer info"""
+    customer = SimpleCustomerSerializer(read_only=True)
+    customer_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Invoice
+        fields = [
+            'id', 'doc_number', 'qb_invoice_id', 'txn_date', 
+            'total_amt', 'customer', 'customer_display'
+        ]
+    
+    def get_customer_display(self, obj):
+        """Get display name for customer"""
+        if obj.customer:
+            return obj.customer.display_name or obj.customer.company_name
+        return obj.customer_name or "Unknown Customer"
+
+class RelatedInvoiceSerializer(serializers.ModelSerializer):
+    """Enhanced serializer for related invoice information with customer details"""
+    customer = SimpleCustomerSerializer(read_only=True)
+    customer_display = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Invoice
+        fields = [
+            "id", "doc_number", "qb_invoice_id", "customer_name", 
+            "customer", "customer_display", "total_amt",
+            "subtotal", "tax_total", "txn_date", "balance",
+            "due_date"
+        ]
+    
+    def get_customer_display(self, obj):
+        """Get display name for customer"""
+        if obj.customer:
+            return obj.customer.display_name or obj.customer.company_name
+        return obj.customer_name or "Unknown Customer"
 
 class CreditNoteLineSerializer(serializers.ModelSerializer):
     """Serializer for credit note line items with tax information"""
@@ -18,16 +63,6 @@ class CreditNoteLineSerializer(serializers.ModelSerializer):
             "raw_data", "created_at", "updated_at"
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
-
-class RelatedInvoiceSerializer(serializers.ModelSerializer):
-    """Serializer for related invoice information"""
-    
-    class Meta:
-        model = Invoice
-        fields = [
-            "id", "doc_number", "customer_name", "total_amt",
-            "subtotal", "tax_total", "txn_date", "balance"
-        ]
 
 class CompanyInfoSerializer(serializers.ModelSerializer):
     """Serializer for company information"""
@@ -113,6 +148,18 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             return KRASubmissionSerializer(latest_submission).data
         return None
 
+class CreditNoteUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating credit note related_invoice field"""
+    
+    class Meta:
+        model = CreditNote
+        fields = ['related_invoice']
+    
+    def validate_related_invoice(self, value):
+        """Validate that the invoice belongs to the same company"""
+        if value and value.company != self.instance.company:
+            raise serializers.ValidationError("Invoice does not belong to the same company")
+        return value
 
 class CreditNoteDetailSerializer(CreditNoteSerializer):
     """Extended serializer for detailed credit note view with additional computed fields"""

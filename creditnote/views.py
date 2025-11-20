@@ -1,4 +1,3 @@
-# creditnote/views.py
 from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -11,8 +10,11 @@ from .serializers import (
     CreditNoteLineSerializer, 
     CompanyInfoSerializer,
     CreditNoteDetailSerializer,
-    CreditNoteSummarySerializer
+    CreditNoteSummarySerializer,
+    CreditNoteUpdateSerializer,
+    InvoiceDropdownSerializer
 )
+from invoices.models import Invoice
 from invoices.services import QuickBooksCreditNoteService
 from companies.models import ActiveCompany
 from kra.models import KRAInvoiceSubmission
@@ -28,7 +30,6 @@ from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import get_object_or_404
 import base64
 from weasyprint import HTML
-
 
 def get_active_company(user):
     """Helper function to get active company with error handling"""
@@ -160,6 +161,12 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
         if not active_company:
             return CreditNote.objects.none()
 
+        # Prefetch related invoice with customer data
+        related_invoice_prefetch = Prefetch(
+            'related_invoice',
+            queryset=Invoice.objects.select_related('customer')
+        )
+
         # Prefetch KRA submissions to avoid N+1 queries - same as invoices
         kra_submissions_prefetch = Prefetch(
             'kra_submissions',
@@ -170,6 +177,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             company=active_company
         ).select_related('company', 'related_invoice').prefetch_related(
             'line_items',
+            related_invoice_prefetch,
             kra_submissions_prefetch
         ).order_by('-txn_date')
 
@@ -179,7 +187,8 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(
                 Q(doc_number__icontains=search) |
                 Q(customer_name__icontains=search) |
-                Q(qb_credit_id__icontains=search)
+                Q(qb_credit_id__icontains=search) |
+                Q(related_invoice__doc_number__icontains=search)
             )
 
         # Apply status filter
@@ -272,6 +281,11 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             Q(customer_name__isnull=False) & ~Q(customer_name='')
         ).count()
         
+        # Calculate linked invoice stats
+        credit_notes_with_linked_invoices = queryset.filter(
+            related_invoice__isnull=False
+        ).count()
+        
         # Simple heuristic for stub customers - adjust based on your actual stub detection logic
         credit_notes_with_stub_customers = queryset.filter(
             Q(customer_name__icontains='customer') | 
@@ -281,6 +295,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
         ).count()
 
         customer_link_quality = round((credit_notes_with_customers / total_credit_notes * 100), 2) if total_credit_notes > 0 else 0
+        invoice_link_quality = round((credit_notes_with_linked_invoices / total_credit_notes * 100), 2) if total_credit_notes > 0 else 0
 
         return Response({
             'success': True,
@@ -293,7 +308,10 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'credit_notes_with_customers': credit_notes_with_customers,
                 'credit_notes_without_customers': total_credit_notes - credit_notes_with_customers,
                 'credit_notes_with_stub_customers': credit_notes_with_stub_customers,
-                'customer_link_quality': customer_link_quality
+                'credit_notes_with_linked_invoices': credit_notes_with_linked_invoices,
+                'credit_notes_without_linked_invoices': total_credit_notes - credit_notes_with_linked_invoices,
+                'customer_link_quality': customer_link_quality,
+                'invoice_link_quality': invoice_link_quality
             }
         })
 
@@ -334,12 +352,6 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             'total_submissions': submissions.count(),
             'latest_submission': KRASubmissionSerializer(submissions.first()).data if submissions.exists() else None
         })
-
-    # creditnote/views.py - Update the submit_to_kra action
-    from rest_framework.decorators import action
-    from rest_framework.response import Response
-    from rest_framework import status
-    from django.shortcuts import get_object_or_404
 
     @action(detail=True, methods=['post'])
     def submit_to_kra(self, request, pk=None):
@@ -504,8 +516,6 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        
-    # ✅ NEW: Analyze Customer Links for Credit Notes
     @action(detail=False, methods=['get'], url_path='analyze-customer-links', url_name='analyze-customer-links')
     def analyze_customer_links(self, request):
         """Analyze customer link quality for credit notes"""
@@ -526,6 +536,11 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 Q(customer_name__isnull=False) & ~Q(customer_name='')
             ).count()
             
+            # Calculate linked invoice statistics
+            credit_notes_with_linked_invoices = credit_notes.filter(
+                related_invoice__isnull=False
+            ).count()
+            
             # More sophisticated stub detection based on your business logic
             credit_notes_with_stub_customers = credit_notes.filter(
                 Q(customer_name__icontains='customer') | 
@@ -538,6 +553,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             stub_customers = Customer.objects.filter(company=active_company, is_stub=True).count()
             
             quality_score = (credit_notes_with_customers / total_credit_notes * 100) if total_credit_notes > 0 else 0
+            invoice_link_score = (credit_notes_with_linked_invoices / total_credit_notes * 100) if total_credit_notes > 0 else 0
 
             return Response({
                 "success": True,
@@ -545,9 +561,12 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     "total_credit_notes": total_credit_notes,
                     "credit_notes_with_customers": credit_notes_with_customers,
                     "credit_notes_without_customers": total_credit_notes - credit_notes_with_customers,
+                    "credit_notes_with_linked_invoices": credit_notes_with_linked_invoices,
+                    "credit_notes_without_linked_invoices": total_credit_notes - credit_notes_with_linked_invoices,
                     "stub_customers": stub_customers,
                     "credit_notes_with_stub_customers": credit_notes_with_stub_customers,
-                    "quality_score": quality_score
+                    "quality_score": quality_score,
+                    "invoice_link_score": invoice_link_score
                 }
             })
             
@@ -558,7 +577,6 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-    # ✅ NEW: Enhance Stub Customers for Credit Notes
     @action(detail=False, methods=['post'], url_path='enhance-stub-customers', url_name='enhance-stub-customers')
     def enhance_stub_customers(self, request):
         """Enhance stub customers with real QuickBooks data for credit notes"""
@@ -586,6 +604,112 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 "error": str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @action(detail=True, methods=['patch', 'put'])
+    def update_related_invoice(self, request, pk=None):
+        """Update the related invoice for a credit note"""
+        try:
+            credit_note = self.get_object()
+            serializer = CreditNoteUpdateSerializer(
+                credit_note, 
+                data=request.data, 
+                partial=True
+            )
+            
+            if serializer.is_valid():
+                serializer.save()
+                
+                # Return updated credit note with related invoice data
+                updated_serializer = CreditNoteSerializer(credit_note)
+                return Response({
+                    'success': True,
+                    'message': 'Related invoice updated successfully',
+                    'credit_note': updated_serializer.data
+                })
+            else:
+                return Response({
+                    'success': False,
+                    'error': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='available-invoices', url_name='available-invoices')
+    def available_invoices(self, request):
+        """Get available invoices that can be linked to credit notes"""
+        try:
+            active_company = get_active_company(request.user)
+            if not active_company:
+                return Response({
+                    'success': False,
+                    'error': 'No active company selected'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get query parameters
+            search = request.query_params.get('search', '')
+            customer_name = request.query_params.get('customer_name', '')
+            limit = int(request.query_params.get('limit', 50))
+
+            # Base queryset - invoices from the same company
+            invoices = Invoice.objects.filter(company=active_company)
+
+            # Apply search filter
+            if search:
+                invoices = invoices.filter(
+                    Q(doc_number__icontains=search) |
+                    Q(customer_name__icontains=search) |
+                    Q(qb_invoice_id__icontains=search)
+                )
+
+            # Filter by customer name if provided
+            if customer_name:
+                invoices = invoices.filter(
+                    Q(customer_name__icontains=customer_name) |
+                    Q(customer__display_name__icontains=customer_name) |
+                    Q(customer__company_name__icontains=customer_name)
+                )
+
+            # Order by most recent first and limit results
+            invoices = invoices.select_related('customer').order_by('-txn_date')[:limit]
+
+            serializer = InvoiceDropdownSerializer(invoices, many=True)
+
+            return Response({
+                'success': True,
+                'invoices': serializer.data,
+                'count': len(invoices)
+            })
+
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['delete'])
+    def remove_related_invoice(self, request, pk=None):
+        """Remove the related invoice from a credit note"""
+        try:
+            credit_note = self.get_object()
+            credit_note.related_invoice = None
+            credit_note.save()
+
+            serializer = CreditNoteSerializer(credit_note)
+            return Response({
+                'success': True,
+                'message': 'Related invoice removed successfully',
+                'credit_note': serializer.data
+            })
+
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
         """Get credit note statistics for the active company"""
@@ -610,6 +734,12 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             total=Sum('balance')
         )['total'] or 0
         
+        # Linked invoice statistics
+        credit_notes_with_linked_invoices = CreditNote.objects.filter(
+            company=active_company,
+            related_invoice__isnull=False
+        ).count()
+        
         # KRA statistics - using the same KRAInvoiceSubmission model
         kra_validated_credit_notes = CreditNote.objects.filter(
             company=active_company,
@@ -625,8 +755,10 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'void_credit_notes': void_credit_notes,
                 'total_amount': float(total_amount),
                 'outstanding_balance': float(outstanding_balance),
+                'credit_notes_with_linked_invoices': credit_notes_with_linked_invoices,
                 'kra_validated_credit_notes': kra_validated_credit_notes,
-                'validation_rate': round((kra_validated_credit_notes / total_credit_notes * 100), 2) if total_credit_notes > 0 else 0
+                'validation_rate': round((kra_validated_credit_notes / total_credit_notes * 100), 2) if total_credit_notes > 0 else 0,
+                'invoice_link_rate': round((credit_notes_with_linked_invoices / total_credit_notes * 100), 2) if total_credit_notes > 0 else 0
             },
             'company': active_company.name
         })
