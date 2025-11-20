@@ -7,6 +7,7 @@ from django.db import transaction
 from django.utils import timezone
 from companies.models import Company
 from invoices.models import Invoice
+from customers.models import Customer
 from .models import KRACompanyConfig, KRAInvoiceCounter, KRAInvoiceSubmission
 
 class KRAInvoiceService:
@@ -32,9 +33,11 @@ class KRAInvoiceService:
     def map_tax_category(self, tax_code_ref, tax_percent):
         """
         Map QuickBooks tax information to KRA tax categories
-        Using actual tax percentage from TxnTaxDetail
+        Comprehensive mapping including QuickBooks numeric codes
         """
-        # Convert tax_percent to Decimal
+        tax_code_ref = str(tax_code_ref or "").upper()
+        
+        # Convert tax_percent to Decimal if it's not already
         if tax_percent is not None:
             try:
                 tax_percent = Decimal(str(tax_percent))
@@ -43,23 +46,61 @@ class KRAInvoiceService:
         else:
             tax_percent = Decimal('0.00')
         
-        # Map based on actual tax percentage
-        if tax_percent == Decimal('16'):
-            return 'B'  # Standard VAT 16%
-        elif tax_percent == Decimal('8'):
-            return 'E'  # Reduced VAT 8%
-        elif tax_percent == Decimal('0'):
-            # Check if it's exempt or zero-rated based on tax_code_ref
-            tax_code_ref = str(tax_code_ref or "").upper()
-            if tax_code_ref in ['EXEMPT', 'EXEMPTED', 'EXEMPTION']:
-                return 'A'  # Exempt
+        # Comprehensive tax code mapping - including QuickBooks numeric codes
+        tax_code_mapping = {
+            # VAT 16% - QuickBooks codes
+            '13': 'B',  
+            'TAX': 'B',
+            'VAT': 'B',
+            '16': 'B',
+            '16%': 'B',
+            'STANDARD': 'B',
+            'VAT16': 'B',
+            
+            # VAT 8% - QuickBooks codes  
+            '8': 'E',
+            '14': 'E',
+            'VAT8': 'E',
+            '8%': 'E',
+            'REDUCED': 'E',
+            
+            # Zero-rated - QuickBooks codes
+            '0': 'C',
+            '15': 'C',
+            'ZERO': 'C',
+            'NON': 'C',
+            'NONE': 'C',
+            'ZERO-RATED': 'C',
+            'ZERORATED': 'C',
+            
+            # Exempt - QuickBooks codes
+            'EXEMPT': 'A',
+            '16': 'A',  # QuickBooks exempt code
+            'EXEMPTED': 'A',
+            'EXEMPTION': 'A',
+            'EXEMPTIONS': 'A',
+        }
+        
+        # First try to map by tax code reference
+        if tax_code_ref in tax_code_mapping:
+            return tax_code_mapping[tax_code_ref]
+        
+        # Fall back to tax percent mapping for edge cases
+        if tax_percent == Decimal('16') or tax_percent == Decimal('16.00'):
+            return 'B'
+        elif tax_percent == Decimal('8') or tax_percent == Decimal('8.00'):
+            return 'E'
+        elif tax_percent == Decimal('0') or tax_percent == Decimal('0.00'):
+            # For zero percent, check if it's exempt or zero-rated based on tax_code_ref
+            if 'EXEMPT' in tax_code_ref:
+                return 'A'
             else:
-                return 'C'  # Zero-rated
+                return 'C'
         else:
             return 'D'  # Other/Non-VAT
     
     def calculate_tax_summary(self, line_items):
-        """Calculate tax summary for categories A-E using actual tax data"""
+        """Calculate tax summary for categories A-E with robust logic"""
         tax_summary = {
             'A': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
@@ -71,10 +112,23 @@ class KRAInvoiceService:
         for item in line_items:
             tax_category = self.map_tax_category(item.tax_code_ref, item.tax_percent)
             
+            # Use the actual taxable amount from the line item
             taxable_amount = item.amount
-            tax_amount = item.tax_amount
             
             tax_summary[tax_category]['taxable_amount'] += taxable_amount
+            
+            # Use the actual tax_amount from the line item if available, otherwise calculate
+            if item.tax_amount and item.tax_amount > 0:
+                tax_amount = item.tax_amount
+            else:
+                # Calculate tax amount based on category rate as fallback
+                if tax_category == 'B':  # 16%
+                    tax_amount = taxable_amount * Decimal('0.16')
+                elif tax_category == 'E':  # 8%
+                    tax_amount = taxable_amount * Decimal('0.08')
+                else:
+                    tax_amount = Decimal('0.00')
+            
             tax_summary[tax_category]['tax_amount'] += tax_amount
         
         return tax_summary
@@ -88,20 +142,43 @@ class KRAInvoiceService:
         else:
             return date_obj.strftime('%Y%m%d%H%M%S')
     
-    def build_kra_payload(self, invoice, kra_invoice_number):
-        """Build KRA API payload from QuickBooks invoice"""
-        
-        # Calculate tax summary
-        tax_summary = self.calculate_tax_summary(invoice.line_items.all())
-        
-        # Get customer KRA PIN - check both customer relationship and customer_ref_value
+    def get_customer_kra_pin(self, invoice):
+        """Get customer KRA PIN from Customer model with robust lookup"""
         customer_kra_pin = ""
-        if invoice.customer and invoice.customer.kra_pin:
+        
+        # Try to find the customer by customer_ref_value
+        if invoice.customer_ref_value:
+            try:
+                customer = Customer.objects.filter(
+                    company=self.company,
+                    qb_customer_id=invoice.customer_ref_value
+                ).first()
+                
+                if customer and customer.kra_pin:
+                    customer_kra_pin = customer.kra_pin
+            except Customer.DoesNotExist:
+                pass
+        
+        # If no customer found via customer_ref_value, try direct customer relationship
+        if not customer_kra_pin and invoice.customer and invoice.customer.kra_pin:
             customer_kra_pin = invoice.customer.kra_pin
-        elif hasattr(invoice, 'kra_pin') and invoice.kra_pin:
+        
+        # Final fallback - check if invoice has direct kra_pin field
+        if not customer_kra_pin and hasattr(invoice, 'kra_pin') and invoice.kra_pin:
             customer_kra_pin = invoice.kra_pin
         
-        # Build item list
+        return customer_kra_pin
+    
+    def build_kra_payload(self, invoice, kra_invoice_number):
+        """Build KRA API payload from QuickBooks invoice with robust field handling"""
+        
+        # Calculate tax summary with improved logic
+        tax_summary = self.calculate_tax_summary(invoice.line_items.all())
+        
+        # Get customer KRA PIN with robust lookup
+        customer_kra_pin = self.get_customer_kra_pin(invoice)
+        
+        # Build item list with improved tax handling
         item_list = []
         for idx, line_item in enumerate(invoice.line_items.all(), 1):
             tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_percent)
@@ -109,10 +186,22 @@ class KRAInvoiceService:
             # Calculate taxable amount correctly
             taxable_amount = line_item.amount
             
+            # Calculate tax amount with fallback
+            if line_item.tax_amount and line_item.tax_amount > 0:
+                tax_amount = line_item.tax_amount
+            else:
+                # Fallback calculation based on tax category
+                if tax_category == 'B':  # 16%
+                    tax_amount = taxable_amount * Decimal('0.16')
+                elif tax_category == 'E':  # 8%
+                    tax_amount = taxable_amount * Decimal('0.08')
+                else:
+                    tax_amount = Decimal('0.00')
+            
             item_data = {
                 "itemSeq": idx,
-                "itemCd": line_item.item_ref_value or f"ITEM{idx:05d}",
-                "itemClsCd": "8500000000",  # Default service classification
+                "itemCd": f"KE2NTU{line_item.item_ref_value}" or f"ITEM{idx:05d}",
+                "itemClsCd": "99000000",  
                 "itemNm": line_item.item_name or line_item.description or "Service",
                 "bcd": None,
                 "pkgUnitCd": "NT",  # No package
@@ -129,7 +218,7 @@ class KRAInvoiceService:
                 "isrcAmt": None,
                 "taxTyCd": tax_category,
                 "taxblAmt": float(taxable_amount),
-                "taxAmt": float(line_item.tax_amount),
+                "taxAmt": float(tax_amount),  # Use calculated tax amount
                 "totAmt": float(line_item.amount)
             }
             item_list.append(item_data)
@@ -152,14 +241,14 @@ class KRAInvoiceService:
             tax_summary['E']['tax_amount']
         ])
         
-        # Build main payload
+        # Build main payload with improved field handling
         payload = {
             "tin": self.kra_config.tin,
             "bhfId": self.kra_config.bhf_id,
             "trdInvcNo": invoice.doc_number or f"INV-{kra_invoice_number}",
             "invcNo": kra_invoice_number,
-            "orgInvcNo": 0,  # 0 for normal invoices
-            "custTin": customer_kra_pin,  # Use customer's KRA PIN
+            "orgInvcNo": 0,  # 0 for original invoices
+            "custTin": customer_kra_pin,
             "custNm": invoice.customer_name or "",
             "salesTyCd": "N",  # Normal sale
             "rcptTyCd": "S",  # Sale
@@ -192,13 +281,13 @@ class KRAInvoiceService:
             "totTaxAmt": float(total_tax_amount),
             "totAmt": float(invoice.total_amt),
             "prchrAcptcYn": "Y",
-            "remark": invoice.private_note,
+            "remark": invoice.private_note or f"Invoice {invoice.doc_number}",
             "regrId": "Admin",
             "regrNm": "Admin",
             "modrId": "Admin",
             "modrNm": "Admin",
             "receipt": {
-                "custTin": customer_kra_pin,  # Use customer's KRA PIN here too
+                "custTin": customer_kra_pin,
                 "custMblNo": "",
                 "rcptPbctDt": self.transform_date_format(timezone.now()),
                 "trdeNm": self.kra_config.trade_name,
@@ -213,7 +302,7 @@ class KRAInvoiceService:
         return payload
 
     def submit_to_kra(self, invoice_id):
-        """Main method to submit invoice to KRA"""
+        """Main method to submit invoice to KRA with improved error handling"""
         try:
             # Get invoice with line items
             invoice = Invoice.objects.select_related('company').prefetch_related('line_items').get(
@@ -224,18 +313,24 @@ class KRAInvoiceService:
             # Get next sequential invoice number
             kra_invoice_number = self.get_next_invoice_number()
             
-            # Build payload
+            # Build payload with improved logic
             payload = self.build_kra_payload(invoice, kra_invoice_number)
             
             # Create submission record
-            submission = KRAInvoiceSubmission.objects.create(
-                company=self.company,
-                invoice=invoice,
-                kra_invoice_number=kra_invoice_number,
-                trd_invoice_no=payload['trdInvcNo'],
-                submitted_data=payload,
-                status='submitted'
-            )
+            submission_data = {
+                'company': self.company,
+                'invoice': invoice,
+                'kra_invoice_number': kra_invoice_number,
+                'trd_invoice_no': payload['trdInvcNo'],
+                'submitted_data': payload,
+                'status': 'submitted'
+            }
+            
+            # Add document_type field only if it exists in the model
+            if hasattr(KRAInvoiceSubmission, 'document_type'):
+                submission_data['document_type'] = 'invoice'
+            
+            submission = KRAInvoiceSubmission.objects.create(**submission_data)
             
             # Prepare headers
             headers = {
@@ -245,10 +340,10 @@ class KRAInvoiceService:
                 'Content-Type': 'application/json'
             }
             
-            # Submit to KRA
+            # Submit to KRA - use the same endpoint as credit notes for consistency
+            # http://204.12.245.182:8985/trnsSales/saveSales
             response = requests.post(
-                # 'http://204.12.227.240:8089/trnsSales/saveSales',
-                ' http://204.12.245.182:8985/trnsSales/saveSales',
+                'http://204.12.227.240:8089/trnsSales/saveSales',
                 json=payload,
                 headers=headers,
                 timeout=30
@@ -274,7 +369,9 @@ class KRAInvoiceService:
                     return {
                         'success': True,
                         'submission': submission,
-                        'kra_response': response_data
+                        'kra_response': response_data,
+                        'kra_invoice_number': kra_invoice_number,
+                        'trd_invoice_no': payload['trdInvcNo']
                     }
                 else:
                     # KRA returned error
@@ -323,8 +420,8 @@ class KRAInvoiceService:
         bhf_id = self.kra_config.bhf_id
         receipt_sign = kra_data.get('rcptSign', '')
         
-        # qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
-        qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        # qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
         return qr_data
     
 # kra/services.py - Add these methods to existing KRAService
@@ -535,8 +632,6 @@ class KRAService:
                 'error': str(e)
             }
         
-            
-# kra/services_credit_note.py
 import requests
 import json
 from datetime import datetime
@@ -693,27 +788,45 @@ class KRACreditNoteService:
         return customer_kra_pin
     
     def get_original_invoice_kra_number(self, credit_note):
-        """Get the original invoice's KRA number for orgInvcNo"""
+        """Get the original invoice's KRA number for orgInvcNo - FIXED VERSION"""
         original_kra_number = 0
         
-        if credit_note.related_invoice:
-            try:
-                # Find the successful KRA submission for the original invoice
-                original_submission = KRAInvoiceSubmission.objects.filter(
+        # Check if credit note has a related invoice
+        if not credit_note.related_invoice:
+            print(f"⚠️ Credit note {credit_note.doc_number} has no related invoice")
+            return original_kra_number
+        
+        try:
+            # Find the successful KRA submission for the original invoice
+            original_submission = KRAInvoiceSubmission.objects.filter(
+                company=self.company,
+                invoice_id=credit_note.related_invoice.id,  # Fixed: use invoice_id instead of invoice
+                status='success'  # Fixed: use 'success' instead of 'success'
+            ).first()
+            
+            if original_submission:
+                original_kra_number = original_submission.kra_invoice_number
+                print(f"✅ Found original KRA invoice number: {original_kra_number} for invoice {credit_note.related_invoice.doc_number}")
+            else:
+                # If no successful submission found, check for any submission
+                any_submission = KRAInvoiceSubmission.objects.filter(
                     company=self.company,
-                    invoice=credit_note.related_invoice,
-                    status='success'
+                    invoice_id=credit_note.related_invoice.id
                 ).first()
                 
-                if original_submission:
-                    original_kra_number = original_submission.kra_invoice_number
+                if any_submission:
+                    print(f"⚠️ Found KRA submission but status is '{any_submission.status}' for invoice {credit_note.related_invoice.doc_number}")
                 else:
-                    # If no successful submission found, use the invoice's doc_number as fallback
-                    original_kra_number = credit_note.related_invoice.doc_number or "0"
-            except Exception as e:
-                print(f"Error getting original invoice KRA number: {str(e)}")
-                # Fallback to invoice doc_number
-                original_kra_number = credit_note.related_invoice.doc_number or "0"
+                    print(f"❌ No KRA submission found for related invoice {credit_note.related_invoice.doc_number}")
+                
+                # For credit notes, we need the original KRA number, so we can't use fallback
+                # KRA requires the actual KRA invoice number that was issued for the original invoice
+                original_kra_number = 0
+                
+        except Exception as e:
+            print(f"❌ Error getting original invoice KRA number: {str(e)}")
+            # Don't fallback to doc_number as it's not the KRA number
+            original_kra_number = 0
         
         return original_kra_number
     
@@ -726,7 +839,7 @@ class KRACreditNoteService:
         # Get customer KRA PIN
         customer_kra_pin = self.get_customer_kra_pin(credit_note)
         
-        # Get original invoice KRA number for orgInvcNo
+        # Get original invoice KRA number for orgInvcNo - FIXED
         original_invoice_kra_number = self.get_original_invoice_kra_number(credit_note)
         
         # Build item list
@@ -739,8 +852,8 @@ class KRACreditNoteService:
             
             item_data = {
                 "itemSeq": idx,
-                "itemCd": line_item.item_ref_value or f"ITEM{idx:05d}",
-                "itemClsCd": "8500000000",  # Default service classification
+                "itemCd": f"KE2NTU{line_item.item_ref_value}" or f"ITEM{idx:05d}",
+                "itemClsCd": "99000000", 
                 "itemNm": line_item.item_name or line_item.description or "Service",
                 "bcd": None,
                 "pkgUnitCd": "NT",  # No package
@@ -838,7 +951,7 @@ class KRACreditNoteService:
             "itemList": item_list
         }
 
-        print("the payload ", payload)
+        print(f"📦 Credit Note Payload - KRA: {kra_number}, Original Invoice KRA: {original_invoice_kra_number}")
         
         return payload
     
@@ -853,6 +966,26 @@ class KRACreditNoteService:
                 id=credit_note_id, 
                 company=self.company
             )
+            
+            # Validate that we have a related invoice with successful KRA submission
+            if not credit_note.related_invoice:
+                return {
+                    'success': False,
+                    'error': "Credit note must have a related invoice to submit to KRA"
+                }
+            
+            # Check if original invoice has been submitted to KRA
+            original_submission = KRAInvoiceSubmission.objects.filter(
+                company=self.company,
+                invoice_id=credit_note.related_invoice.id,
+                status='success'
+            ).first()
+            
+            if not original_submission:
+                return {
+                    'success': False,
+                    'error': f"Original invoice {credit_note.related_invoice.doc_number} must be successfully submitted to KRA before submitting credit note"
+                }
             
             # Get next sequential number from SHARED counter
             kra_number = self.get_next_kra_number()
@@ -886,7 +1019,7 @@ class KRACreditNoteService:
             
             # Submit to KRA - using the same endpoint as invoices for credit notes
             response = requests.post(
-                'http://204.12.227.240:8089/trnsSales/saveSales',  # Same endpoint as invoices
+                'http://204.12.227.240:8089/trnsSales/saveSales',  
                 json=payload,
                 headers=headers,
                 timeout=30
