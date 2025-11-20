@@ -16,12 +16,18 @@ SANDBOX_USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_c
 PRODUCTION_USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
 
 # Environment-specific credentials
+# if QBO_ENVIRONMENT == "production":
+#     USERINFO_URL = PRODUCTION_USERINFO_URL
+#     QBO_CLIENT_ID = os.getenv("PROD_QBO_CLIENT_ID")
+#     QBO_CLIENT_SECRET = os.getenv("PROD_QBO_CLIENT_SECRET")
+#     QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qbo-ui.netlify.app/qbo/callback")
+#     QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qbo-ui.netlify.app/qbo/callback")
 if QBO_ENVIRONMENT == "production":
     USERINFO_URL = PRODUCTION_USERINFO_URL
     QBO_CLIENT_ID = os.getenv("PROD_QBO_CLIENT_ID")
     QBO_CLIENT_SECRET = os.getenv("PROD_QBO_CLIENT_SECRET")
-    QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qbo-ui.netlify.app/qbo/callback")
-    QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qbo-ui.netlify.app/qbo/callback")
+    QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qb-ui-staging.netlify.app/qbo/callback")
+    QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qb-ui-staging.netlify.app/qbo/callback")
 else:
     USERINFO_URL = SANDBOX_USERINFO_URL
     QBO_CLIENT_ID = os.getenv("DEV_QBO_CLIENT_ID")
