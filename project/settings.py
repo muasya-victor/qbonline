@@ -90,10 +90,10 @@ CORS_ALLOW_CREDENTIALS = True
 
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
-    "http://localhost:3001",  # Frontend dev server
+    "http://localhost:3001",  
     "http://212.47.77.18",
     "https://qbo-ui.netlify.app",
-    "https://qbo-ui-staging.netlify.app",
+    "https://qb-ui-staging.netlify.app",
 ]
 
 
