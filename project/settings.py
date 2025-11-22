@@ -133,7 +133,7 @@ WSGI_APPLICATION = 'project.wsgi.application'
 
 DATABASE_ENVIRONMENT = os.getenv("DATABASE_ENVIRONMENT", "development")
 
-if DATABASE_ENVIRONMENT in ["production", "staging"]:
+if DATABASE_ENVIRONMENT == "production" or DATABASE_ENVIRONMENT == "staging" or DATABASE_ENVIRONMENT == "sandbox":
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
