@@ -30,7 +30,13 @@ SECRET_KEY = 'django-insecure-t78&&-m6yxjfxrne(6+8014_60(203jm^$uw*znmm8e!+@!s7k
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["localhost", "127.0.0.1", "212.47.77.18", "api.v2.smartinvoice.co.ke", "staging.v2.smartinvoice.co.ke"]
+ALLOWED_HOSTS = ["localhost",
+                    "127.0.0.1",
+                    "212.47.77.18",
+                    "api.prod.v2.smartinvoice.co.ke",
+                    "api.sbx.v2.smartinvoice.co.ke",
+                    "staging.v2.smartinvoice.co.ke"
+                ]
 
 SESSION_COOKIE_SAMESITE = 'Lax'
 SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
@@ -94,6 +100,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://212.47.77.18",
     "https://qbo-ui.netlify.app",
     "https://qb-ui-staging.netlify.app",
+    "https://prod.v2.smartinvoice.co.ke",
+    "https://sbx.v2.smartinvoice.co.ke",
 ]
 
 
@@ -125,7 +133,7 @@ WSGI_APPLICATION = 'project.wsgi.application'
 
 DATABASE_ENVIRONMENT = os.getenv("DATABASE_ENVIRONMENT", "development")
 
-if DATABASE_ENVIRONMENT == "production":
+if DATABASE_ENVIRONMENT == "production" or "staging":
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.postgresql',
@@ -140,16 +148,6 @@ if DATABASE_ENVIRONMENT == "production":
             },
         }
     }
-
-elif DATABASE_ENVIRONMENT == "testing":
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'test_db.sqlite3',
-            'OPTIONS': {'timeout': 420},
-        }
-    }
-
 else:  # development
     DATABASES = {
         'default': {

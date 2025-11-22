@@ -16,24 +16,24 @@ SANDBOX_USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_c
 PRODUCTION_USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
 
 # Environment-specific credentials
-# if QBO_ENVIRONMENT == "production":
-#     USERINFO_URL = PRODUCTION_USERINFO_URL
-#     QBO_CLIENT_ID = os.getenv("PROD_QBO_CLIENT_ID")
-#     QBO_CLIENT_SECRET = os.getenv("PROD_QBO_CLIENT_SECRET")
-#     QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qbo-ui.netlify.app/qbo/callback")
-#     QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qbo-ui.netlify.app/qbo/callback")
 if QBO_ENVIRONMENT == "production":
     USERINFO_URL = PRODUCTION_USERINFO_URL
     QBO_CLIENT_ID = os.getenv("PROD_QBO_CLIENT_ID")
     QBO_CLIENT_SECRET = os.getenv("PROD_QBO_CLIENT_SECRET")
-    QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://qb-ui-staging.netlify.app/qbo/callback/")
-    QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://qb-ui-staging.netlify.app/qbo/callback/")
+    QBO_REDIRECT_URI = os.getenv("PROD_QBO_REDIRECT_URI", "https://prod.v2.smartinvoice.co.ke/qbo/callback")
+    QBO_REDIRECT_URI_FRONTEND = os.getenv("PROD_QBO_REDIRECT_URI_FRONTEND", "https://prod.v2.smartinvoice.co.ke/qbo/callback")
+if QBO_ENVIRONMENT == "staging":
+    USERINFO_URL = PRODUCTION_USERINFO_URL
+    QBO_CLIENT_ID = os.getenv("STAGING_QBO_CLIENT_ID")
+    QBO_CLIENT_SECRET = os.getenv("STAGING_QBO_CLIENT_SECRET")
+    QBO_REDIRECT_URI = os.getenv("STAGING_QBO_REDIRECT_URI", "https://sbx.v2.smartinvoice.co.ke/qbo/callback")
+    QBO_REDIRECT_URI_FRONTEND = os.getenv("STAGING_QBO_REDIRECT_URI_FRONTEND", "https://sbx.v2.smartinvoice.co.ke/qbo/callback")
 else:
     USERINFO_URL = SANDBOX_USERINFO_URL
     QBO_CLIENT_ID = os.getenv("DEV_QBO_CLIENT_ID")
     QBO_CLIENT_SECRET = os.getenv("DEV_QBO_CLIENT_SECRET")
-    QBO_REDIRECT_URI = os.getenv("DEV_QBO_REDIRECT_URI", "http://localhost:3000/qbo/callback/")
-    QBO_REDIRECT_URI_FRONTEND = os.getenv("DEV_QBO_REDIRECT_URI_FRONTEND", "http://localhost:3000/qbo/callback/")
+    QBO_REDIRECT_URI = os.getenv("DEV_QBO_REDIRECT_URI", "http://localhost:3000/qbo/callback")
+    QBO_REDIRECT_URI_FRONTEND = os.getenv("DEV_QBO_REDIRECT_URI_FRONTEND", "http://localhost:3000/qbo/callback")
 
 # Derived endpoints using BASE_URL
 COMPANY_INFO_URL = f"{BASE_URL}/v3/company/{{realm_id}}/companyinfo/{{realm_id}}"
