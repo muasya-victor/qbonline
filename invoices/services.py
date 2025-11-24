@@ -17,11 +17,11 @@ from project.settings_qbo import BASE_URL
 
 
 print("our environment", BASE_URL)
+
 # Set up logging
 logger = logging.getLogger(__name__)
 QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
 
-logger.info("base url", BASE_URL)
 
 
 class QuickBooksInvoiceService:

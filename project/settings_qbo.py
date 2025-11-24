@@ -1,7 +1,8 @@
 import os
 
-QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
+QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox")
 
+print(QBO_ENVIRONMENT, 'out env')
 # Base URLs
 DEV_QBO_BASE_URL = os.getenv("DEV_QBO_BASE_URL", "https://sandbox-quickbooks.api.intuit.com")
 STAGING_QBO_BASE_URL = os.getenv("PROD_QBO_BASE_URL", "https://quickbooks.api.intuit.com")
@@ -10,9 +11,9 @@ PROD_QBO_BASE_URL = os.getenv("PROD_QBO_BASE_URL", "https://quickbooks.api.intui
 if QBO_ENVIRONMENT == "production":
     BASE_URL = PROD_QBO_BASE_URL
 elif QBO_ENVIRONMENT == "staging":
-    BASE_URL = DEV_QBO_BASE_URL
+    BASE_URL = PROD_QBO_BASE_URL
 elif QBO_ENVIRONMENT == "sandbox":
-    BASE_URL = DEV_QBO_BASE_URL
+    BASE_URL = PROD_QBO_BASE_URL
 else:
     BASE_URL = DEV_QBO_BASE_URL
 
