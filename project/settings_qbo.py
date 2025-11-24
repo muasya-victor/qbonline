@@ -4,8 +4,15 @@ QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
 
 # Base URLs
 DEV_QBO_BASE_URL = os.getenv("DEV_QBO_BASE_URL", "https://sandbox-quickbooks.api.intuit.com")
+STAGING_QBO_BASE_URL = os.getenv("PROD_QBO_BASE_URL", "https://quickbooks.api.intuit.com")
 PROD_QBO_BASE_URL = os.getenv("PROD_QBO_BASE_URL", "https://quickbooks.api.intuit.com")
-BASE_URL = PROD_QBO_BASE_URL if QBO_ENVIRONMENT == "production" else DEV_QBO_BASE_URL
+
+if QBO_ENVIRONMENT == "production":
+    BASE_URL = PROD_QBO_BASE_URL
+elif QBO_ENVIRONMENT in ["staging", "sandbox"]:
+    BASE_URL = DEV_QBO_BASE_URL
+else:
+    BASE_URL = DEV_QBO_BASE_URL
 
 # Auth endpoints
 AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
@@ -13,6 +20,7 @@ TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
 
 # Sandbox & production userinfo endpoints
 SANDBOX_USERINFO_URL = "https://sandbox-accounts.platform.intuit.com/v1/openid_connect/userinfo"
+STAGING_USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
 PRODUCTION_USERINFO_URL = "https://accounts.platform.intuit.com/v1/openid_connect/userinfo"
 
 # Environment-specific credentials
