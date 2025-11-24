@@ -9,7 +9,9 @@ PROD_QBO_BASE_URL = os.getenv("PROD_QBO_BASE_URL", "https://quickbooks.api.intui
 
 if QBO_ENVIRONMENT == "production":
     BASE_URL = PROD_QBO_BASE_URL
-elif QBO_ENVIRONMENT in ["staging", "sandbox"]:
+elif QBO_ENVIRONMENT == "staging":
+    BASE_URL = DEV_QBO_BASE_URL
+elif QBO_ENVIRONMENT == "sandbox":
     BASE_URL = DEV_QBO_BASE_URL
 else:
     BASE_URL = DEV_QBO_BASE_URL
