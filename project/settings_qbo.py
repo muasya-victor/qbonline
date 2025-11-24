@@ -16,6 +16,8 @@ elif QBO_ENVIRONMENT == "sandbox":
 else:
     BASE_URL = DEV_QBO_BASE_URL
 
+
+
 # Auth endpoints
 AUTH_BASE_URL = "https://appcenter.intuit.com/connect/oauth2"
 TOKEN_URL = "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer"
