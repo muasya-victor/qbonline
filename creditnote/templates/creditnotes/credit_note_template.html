@@ -771,8 +771,8 @@
                                     {{ kra_submission.status|title }}
                                 </span><br>
                                 Receipt: {{ kra_submission.receipt_signature }}<br>
-                                Receipt Number: {{ kra_submission.kra_invoice_number }}<br>
-                                Interna Data: {{ kra_submission.response_data.data.intrlData }}<br>
+                                SdcId: {{ kra_submission.response_data.data.sdcId }}<br>
+                                Internal Data: {{ kra_submission.response_data.data.intrlData }}<br>
                                 Invoice Data: {{ kra_submission.response_data.data.sdcId }}/ {{ kra_submission.kra_invoice_number }}<br>
                                 Date: {{ kra_submission.created_at|date:"M j, Y" }}
                             </div>
