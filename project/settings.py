@@ -93,6 +93,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:3001",  # Frontend dev server
     "http://212.47.77.18",
     "https://qbo-ui.netlify.app",
+    "https://prod.v2.smartinvoice.co.ke",
 ]
 
 
