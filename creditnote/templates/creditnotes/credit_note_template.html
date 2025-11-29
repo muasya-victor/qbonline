@@ -629,7 +629,7 @@
 
                                 {% if company.kra_pin %}
                                 <div class="contact-item">
-                                    <p>Pin - </p>
+                                    <p>PIN:  </p>
                                     <span> {{ company.kra_pin }}</span>
                                 </div>
                                 {% endif %}
@@ -645,7 +645,7 @@
                         <div class="bill-to-name">{{ document.customer_name|default:"Customer" }}</div>
                         {% if document %}
                                 <div class="contact-item">
-                                    <p>Pin - </p>
+                                    <p>PIN:  </p>
                                     <span> {{ document.related_invoice.customer.kra_pin }}</span>
                                 </div>
                                 {% endif %}
