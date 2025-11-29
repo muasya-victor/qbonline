@@ -124,8 +124,8 @@ class KRAInvoiceService:
                 # Calculate tax amount based on category rate as fallback
                 if tax_category == 'B':  # 16%
                     tax_amount = taxable_amount * Decimal('0.16')
-                elif tax_category == 'E':  # 8%
-                    tax_amount = taxable_amount * Decimal('0.08')
+                # elif tax_category == 'E':  # 8%
+                #     tax_amount = taxable_amount * Decimal('0.08')
                 else:
                     tax_amount = Decimal('0.00')
             
@@ -193,8 +193,8 @@ class KRAInvoiceService:
                 # Fallback calculation based on tax category
                 if tax_category == 'B':  # 16%
                     tax_amount = taxable_amount * Decimal('0.16')
-                elif tax_category == 'E':  # 8%
-                    tax_amount = taxable_amount * Decimal('0.08')
+                # elif tax_category == 'E':  # 8%
+                #     tax_amount = taxable_amount * Decimal('0.08')
                 else:
                     tax_amount = Decimal('0.00')
             
@@ -746,8 +746,8 @@ class KRACreditNoteService:
                 # Calculate tax amount based on category rate
                 if tax_category == 'B':  # 16%
                     tax_amount = taxable_amount * Decimal('0.16')
-                elif tax_category == 'E':  # 8%
-                    tax_amount = taxable_amount * Decimal('0.08')
+                # elif tax_category == 'E':  # 8%
+                #     tax_amount = taxable_amount * Decimal('0.08')
                 else:
                     tax_amount = Decimal('0.00')
             
