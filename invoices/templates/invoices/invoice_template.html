@@ -632,6 +632,13 @@
                                     <span>{{ company.qb_website }}</span>
                                 </div>
                                 {% endif %}
+
+                                {% if company.kra_pin %}
+                                <div class="contact-item">
+                                    <p>Pin - </p>
+                                    <span> {{ company.kra_pin }}</span>
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -642,6 +649,25 @@
                     <div class="bill-to">
                         <h2>BILL TO</h2>
                         <div class="bill-to-name">{{ invoice.customer_name }}</div>
+                        {% if invoice %}
+                                <div class="contact-item">
+                                    <p>Pin - </p>
+                                    <span> {{ invoice.customer.kra_pin }}</span>
+                                </div>
+                                {% endif %}
+                        <div class="brand-line"></div>
+                    </div>
+
+                    <div class="bill-to">
+                        <h2>SHIP TO</h2>
+                        {% if invoice.raw_data %}
+                                <div class="contact-item">
+                                    <span> {{ invoice.raw_data.ShipAddr.Line1 }}</span>
+                                </div>
+                                <div class="contact-item">
+                                    <span> {{ invoice.raw_data.ShipAddr.City }} ,  {{ invoice.raw_data.ShipAddr.PostalCode }}</span>
+                                </div>
+                                {% endif %}
                         <div class="brand-line"></div>
                     </div>
 
@@ -817,7 +843,7 @@
                 {% endif %}
 
                 <!-- Notes Section -->
-                {% if invoice.customer_memo or invoice.private_note %}
+                {% comment %} {% if invoice.customer_memo or invoice.private_note %}
                 <div class="notes-section">
                     <h3 class="notes-title">
                         <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -840,7 +866,7 @@
                         {% endif %}
                     </div>
                 </div>
-                {% endif %}
+                {% endif %} {% endcomment %}
 
                 <!-- Footer -->
                 {% if company.invoice_footer_text %}
