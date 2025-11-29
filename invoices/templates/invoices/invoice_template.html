@@ -660,12 +660,9 @@
 
                     <div class="bill-to">
                         <h2>SHIP TO</h2>
-                        {% if invoice.raw_data %}
+                        {% if invoice.customer %}
                                 <div class="contact-item">
-                                    <span> {{ invoice.raw_data.ShipAddr.Line1 }}</span>
-                                </div>
-                                <div class="contact-item">
-                                    <span> {{ invoice.raw_data.ShipAddr.City }} ,  {{ invoice.raw_data.ShipAddr.PostalCode }}</span>
+                                    <span> {{ invoice.customer.shipping_address }}</span>
                                 </div>
                                 {% endif %}
                         <div class="brand-line"></div>

@@ -654,14 +654,17 @@
 
                     <div class="bill-to">
                         <h2>SHIP TO</h2>
-                        {% if document %}
-                                <div class="bill-to-name">
-                                    <span> {{ document.raw_data.ShipFromAddr.Line1 }}</span>
-                                </div>
-                                <div class="bill-to-name">
-                                    <span> {{ document.raw_data.ShipFromAddr.Line2 }} </span>
-                                </div>
-                                {% endif %}
+                        {% if document.raw_data.ShipFromAddr.Line1 %}
+                            <div class="bill-to-name">
+                                <span> {{ document.raw_data.ShipFromAddr.Line1 }}</span>
+                            </div>
+                        {% endif %}
+
+                        {% if document.raw_data.ShipFromAddr.Line2 %}
+                            <div class="bill-to-name">
+                                <span> {{ document.raw_data.ShipFromAddr.Line2 }}</span>
+                            </div>
+                        {% endif %}
                         <div class="brand-line"></div>
                     </div>
 
