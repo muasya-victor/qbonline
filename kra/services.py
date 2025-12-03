@@ -58,11 +58,11 @@ class KRAInvoiceService:
             'VAT16': 'B',
             
             # VAT 8% - QuickBooks codes  
-            '8': 'E',
-            '14': 'E',
-            'VAT8': 'E',
-            '8%': 'E',
-            'REDUCED': 'E',
+            # '8': 'E',
+            # '14': 'E',
+            # 'VAT8': 'E',
+            # '8%': 'E',
+            # 'REDUCED': 'E',
             
             # Zero-rated - QuickBooks codes
             '0': 'C',
@@ -690,9 +690,9 @@ class KRACreditNoteService:
             '16%': 'B',
             
             # VAT 8%
-            '8': 'E',  
-            'VAT8': 'E',
-            '8%': 'E',
+            # '8': 'E',  
+            # 'VAT8': 'E',
+            # '8%': 'E',
             
             # Zero-rated
             '0': 'C',
