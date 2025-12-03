@@ -88,8 +88,8 @@ class KRAInvoiceService:
         # Fall back to tax percent mapping for edge cases
         if tax_percent == Decimal('16') or tax_percent == Decimal('16.00'):
             return 'B'
-        elif tax_percent == Decimal('8') or tax_percent == Decimal('8.00'):
-            return 'E'
+        # elif tax_percent == Decimal('8') or tax_percent == Decimal('8.00'):
+        #     return 'E'
         elif tax_percent == Decimal('0') or tax_percent == Decimal('0.00'):
             # For zero percent, check if it's exempt or zero-rated based on tax_code_ref
             if 'EXEMPT' in tax_code_ref:
@@ -106,7 +106,7 @@ class KRAInvoiceService:
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
             'C': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'D': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
-            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},
+            # 'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},
         }
         
         for item in line_items:
@@ -714,8 +714,8 @@ class KRACreditNoteService:
         # Fall back to tax percent mapping
         if tax_percent == Decimal('16') or tax_percent == Decimal('16.00'):
             return 'B'
-        elif tax_percent == Decimal('8') or tax_percent == Decimal('8.00'):
-            return 'E'
+        # elif tax_percent == Decimal('8') or tax_percent == Decimal('8.00'):
+        #     return 'E'
         elif tax_percent == Decimal('0') or tax_percent == Decimal('0.00'):
             return 'C'
         else:
@@ -728,7 +728,7 @@ class KRACreditNoteService:
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
             'C': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'D': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
-            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},
+            # 'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},
         }
         
         for item in line_items:
