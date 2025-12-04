@@ -47,7 +47,7 @@ if QBO_ENVIRONMENT == "sandbox":
     QBO_CLIENT_SECRET = os.getenv("STAGING_QBO_CLIENT_SECRET")
     QBO_REDIRECT_URI = os.getenv("STAGING_QBO_REDIRECT_URI", "https://sbx.v2.smartinvoice.co.ke/qbo/callback")
     QBO_REDIRECT_URI_FRONTEND = os.getenv("STAGING_QBO_REDIRECT_URI_FRONTEND", "https://sbx.v2.smartinvoice.co.ke/qbo/callback")
-else:
+if QBO_ENVIRONMENT == "development":
     USERINFO_URL = SANDBOX_USERINFO_URL
     QBO_CLIENT_ID = os.getenv("DEV_QBO_CLIENT_ID")
     QBO_CLIENT_SECRET = os.getenv("DEV_QBO_CLIENT_SECRET")
