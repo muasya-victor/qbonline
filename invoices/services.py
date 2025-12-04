@@ -15,9 +15,13 @@ from rest_framework import status
 from rest_framework.decorators import action
 from project.settings_qbo import BASE_URL
 
+
+print("our environment", BASE_URL)
+
 # Set up logging
 logger = logging.getLogger(__name__)
 QBO_ENVIRONMENT = os.getenv("QBO_ENVIRONMENT", "sandbox").lower()
+
 
 
 class QuickBooksInvoiceService:
@@ -68,7 +72,7 @@ class QuickBooksInvoiceService:
         batch_size = 500  
 
         # Calculate timestamp for 2 days ago in UTC
-        two_days_ago = (datetime.now(tz.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        two_days_ago = (datetime.now(tz.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         
         logger.info(f"🔄 Fetching invoices updated since {two_days_ago} for company {self.company.realm_id}")
 
@@ -591,7 +595,7 @@ class QuickBooksCreditNoteService:
         batch_size = 500
 
         # Calculate timestamp for 2 days ago in UTC
-        two_days_ago = (datetime.now(tz.utc) - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        two_days_ago = (datetime.now(tz.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
         
         logger.info(f"🔄 Fetching credit notes updated since {two_days_ago} for company {self.company.realm_id}")
 

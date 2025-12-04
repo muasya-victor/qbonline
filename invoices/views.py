@@ -483,6 +483,7 @@ def invoice_detail(request, invoice_id):
             'invoice': invoice,
             'company': company,
             'kra_submission': kra_submission,
+            'raw_data': invoice.raw_data,
         }
 
         # Generate QR code for HTML view too

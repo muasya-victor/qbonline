@@ -632,6 +632,13 @@
                                     <span>{{ company.qb_website }}</span>
                                 </div>
                                 {% endif %}
+
+                                {% if company.kra_pin %}
+                                <div class="contact-item">
+                                    <p>PIN:  </p>
+                                    <span> {{ company.kra_pin }}</span>
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -642,6 +649,22 @@
                     <div class="bill-to">
                         <h2>BILL TO</h2>
                         <div class="bill-to-name">{{ invoice.customer_name }}</div>
+                        {% if invoice %}
+                                <div class="contact-item">
+                                    <p>PIN:  </p>
+                                    <span> {{ invoice.customer.kra_pin }}</span>
+                                </div>
+                                {% endif %}
+                        <div class="brand-line"></div>
+                    </div>
+
+                    <div class="bill-to">
+                        <h2>SHIP TO</h2>
+                        {% if invoice.customer %}
+                                <div class="contact-item">
+                                    <span> {{ invoice.customer.shipping_address }}</span>
+                                </div>
+                                {% endif %}
                         <div class="brand-line"></div>
                     </div>
 
@@ -790,6 +813,9 @@
                                     {{ kra_submission.status|title }}
                                 </span><br>
                                 Receipt: {{ kra_submission.receipt_signature }}<br>
+                                CU Number: {{ kra_submission.response_data.data.sdcId }}<br>
+                                Interna Data: {{ kra_submission.response_data.data.intrlData }}<br>
+                                Invoice Data: {{ kra_submission.response_data.data.sdcId }}/ {{ kra_submission.kra_invoice_number }}<br>
                                 Date: {{ kra_submission.created_at|date:"M j, Y" }}
                             </div>
                             <div style="margin-top: 0.5rem;">
@@ -814,7 +840,7 @@
                 {% endif %}
 
                 <!-- Notes Section -->
-                {% if invoice.customer_memo or invoice.private_note %}
+                {% comment %} {% if invoice.customer_memo or invoice.private_note %}
                 <div class="notes-section">
                     <h3 class="notes-title">
                         <svg class="icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -837,7 +863,7 @@
                         {% endif %}
                     </div>
                 </div>
-                {% endif %}
+                {% endif %} {% endcomment %}
 
                 <!-- Footer -->
                 {% if company.invoice_footer_text %}
