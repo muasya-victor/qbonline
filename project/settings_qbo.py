@@ -54,6 +54,9 @@ if QBO_ENVIRONMENT == "development":
     QBO_REDIRECT_URI = os.getenv("DEV_QBO_REDIRECT_URI", "http://localhost:3000/qbo/callback")
     QBO_REDIRECT_URI_FRONTEND = os.getenv("DEV_QBO_REDIRECT_URI_FRONTEND", "http://localhost:3000/qbo/callback")
 
+
+print(QBO_ENVIRONMENT, 'env used')
+
 # Derived endpoints using BASE_URL
 COMPANY_INFO_URL = f"{BASE_URL}/v3/company/{{realm_id}}/companyinfo/{{realm_id}}"
 PREFERENCES_URL = f"{BASE_URL}/v3/company/{{realm_id}}/preferences"
