@@ -212,7 +212,7 @@ class QuickBooksAuthURLView(APIView):
             "client_id": client_id,
             "response_type": "code",
             "scope": scopes,
-            "redirect_uri": redirect_uri,
+            "redirect_uri": "https://prod.v2.smartinvoice.co.ke/qbo/callback",
             "state": state,
         }
         
