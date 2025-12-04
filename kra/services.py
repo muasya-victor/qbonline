@@ -40,10 +40,15 @@ class KRAInvoiceService:
             counter.last_invoice_number += 1
             counter.save()
             return counter.last_invoice_number
-    
+        
     def map_tax_category(self, tax_code_ref, tax_percent):
         """
         Map QuickBooks tax information to KRA tax categories (A-D only)
+        Based on QuickBooks standard tax codes:
+        - A: Exempt (0% tax)
+        - B: Standard VAT (16% tax)
+        - C: Zero-rated (0% tax)
+        - D: Non-VAT (0% tax)
         """
         tax_code_ref = str(tax_code_ref or "").upper()
         
@@ -56,54 +61,53 @@ class KRAInvoiceService:
         else:
             tax_percent = Decimal('0.00')
         
-        # Tax code mapping - only categories A-D
-        tax_code_mapping = {
-            # VAT 16% - QuickBooks codes (Category B)
-            '13': 'B',  
+        # QuickBooks standard tax code mapping
+        qb_tax_code_mapping = {
+            # Category B: Standard VAT 16% - QuickBooks code 13
+            '13': 'B',
             'TAX': 'B',
             'VAT': 'B',
-            '16': 'B',
-            '16%': 'B',
-            'STANDARD': 'B',
-            'VAT16': 'B',
             
-            # Zero-rated - QuickBooks codes (Category C)
-            '0': 'C',
+            # Category C: Zero-rated (0%) - QuickBooks code 15
             '15': 'C',
+            '0': 'C',
             'ZERO': 'C',
             'NON': 'C',
             'NONE': 'C',
             'ZERO-RATED': 'C',
             'ZERORATED': 'C',
             
-            # Exempt - QuickBooks codes (Category A)
+            # Category A: Exempt (0%) - QuickBooks code 23
+            '23': 'A',
             'EXEMPT': 'A',
-            '16': 'A',  # QuickBooks exempt code
             'EXEMPTED': 'A',
             'EXEMPTION': 'A',
             'EXEMPTIONS': 'A',
             
-            # Other/Non-VAT (Category D)
+            # Category D: Non-VAT (0%) - Other codes
             'NON-VAT': 'D',
             'OTHER': 'D',
+            'D': 'D',
         }
         
-        # First try to map by tax code reference
-        if tax_code_ref in tax_code_mapping:
-            return tax_code_mapping[tax_code_ref]
+        # First try to map by QuickBooks tax code
+        if tax_code_ref in qb_tax_code_mapping:
+            return qb_tax_code_mapping[tax_code_ref]
         
-        # Fall back to tax percent mapping for edge cases
+        # Fall back to tax percent mapping with logic for 0% cases
         if tax_percent == Decimal('16') or tax_percent == Decimal('16.00'):
-            return 'B'
+            return 'B'  # 16% VAT
         elif tax_percent == Decimal('0') or tax_percent == Decimal('0.00'):
-            # For zero percent, check if it's exempt or zero-rated based on tax_code_ref
-            if 'EXEMPT' in tax_code_ref:
-                return 'A'
+            # For 0% tax, determine if it's A, C, or D
+            if tax_code_ref == '23' or 'EXEMPT' in tax_code_ref:
+                return 'A'  # Exempt
+            elif tax_code_ref == '15' or 'ZERO' in tax_code_ref:
+                return 'C'  # Zero-rated
             else:
-                return 'C'
+                return 'D'  # Non-VAT (default for 0%)
         else:
-            return 'D'  # Other/Non-VAT
-    
+            return 'D'  # Other/Non-VAT for any other tax rate
+        
     def calculate_tax_summary(self, line_items):
         """Calculate tax summary for categories A-D only"""
         tax_summary = {
