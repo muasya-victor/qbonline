@@ -21,6 +21,7 @@ from invoices.models import Invoice
 from customers.models import Customer
 from .models import KRACompanyConfig, KRAInvoiceCounter, KRAInvoiceSubmission
 
+
 class KRAInvoiceService:
     """Service for handling KRA invoice submissions"""
     
@@ -43,7 +44,7 @@ class KRAInvoiceService:
         
     def map_tax_category(self, tax_code_ref, tax_percent):
         """
-        Map QuickBooks tax information to KRA tax categories (A-D only)
+        Map QuickBooks tax information to KRA tax categories (A-D only, never E)
         HARDCODED MAPPING FOR CURRENT COMPANY:
         - "13" → Category B (Standard VAT 16%)
         - "14" → Category A (Exempt 0%)
@@ -93,16 +94,17 @@ class KRAInvoiceService:
             return 'D'
         else:
             # For any other tax rate (like 8% if it exists), default to Category D
+            # NOT Category E - we don't use category E anymore
             return 'D'
         
     def calculate_tax_summary(self, line_items):
-        """Calculate tax summary for categories A-D only"""
+        """Calculate tax summary for categories A-E"""
         tax_summary = {
             'A': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
             'C': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'D': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
-            # REMOVED 'E' category
+            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},  # ADDED: Category E with 8% rate but 0 amounts
         }
         
         for item in line_items:
@@ -111,20 +113,23 @@ class KRAInvoiceService:
             # Use the actual taxable amount from the line item
             taxable_amount = item.amount
             
-            tax_summary[tax_category]['taxable_amount'] += taxable_amount
-            
-            # Use the actual tax_amount from the line item if available, otherwise calculate
-            if item.tax_amount and item.tax_amount > 0:
-                tax_amount = item.tax_amount
-            else:
-                # Calculate tax amount based on category rate as fallback
-                if tax_category == 'B':  # 16%
-                    tax_amount = taxable_amount * Decimal('0.16')
-                # REMOVED tax category 'E' calculation
+            # Only accumulate amounts for categories A-D (E remains 0)
+            if tax_category in ['A', 'B', 'C', 'D']:
+                tax_summary[tax_category]['taxable_amount'] += taxable_amount
+                
+                # Use the actual tax_amount from the line item if available, otherwise calculate
+                if item.tax_amount and item.tax_amount > 0:
+                    tax_amount = item.tax_amount
                 else:
-                    tax_amount = Decimal('0.00')
-            
-            tax_summary[tax_category]['tax_amount'] += tax_amount
+                    # Calculate tax amount based on category rate as fallback
+                    if tax_category == 'B':  # 16%
+                        tax_amount = taxable_amount * Decimal('0.16')
+                    else:
+                        tax_amount = Decimal('0.00')
+                
+                tax_summary[tax_category]['tax_amount'] += tax_amount
+            # Category E items are not expected, but if they appear, they would have 0 taxable amount
+            # and 0 tax amount since we don't use category E anymore
         
         return tax_summary
     
@@ -165,7 +170,7 @@ class KRAInvoiceService:
         return customer_kra_pin
     
     def build_kra_payload(self, invoice, kra_invoice_number):
-        """Build KRA API payload from QuickBooks invoice without 'E' category"""
+        """Build KRA API payload from QuickBooks invoice with all tax categories (A-E)"""
         
         # Calculate tax summary with improved logic
         tax_summary = self.calculate_tax_summary(invoice.line_items.all())
@@ -188,7 +193,6 @@ class KRAInvoiceService:
                 # Fallback calculation based on tax category
                 if tax_category == 'B':  # 16%
                     tax_amount = taxable_amount * Decimal('0.16')
-                # REMOVED tax category 'E' calculation
                 else:
                     tax_amount = Decimal('0.00')
             
@@ -217,25 +221,23 @@ class KRAInvoiceService:
             }
             item_list.append(item_data)
         
-        # Calculate total taxable amount from summary (without 'E')
+        # Calculate total taxable amount from summary (including only A-D since E is always 0)
         total_taxable_amount = sum([
             tax_summary['A']['taxable_amount'],
             tax_summary['B']['taxable_amount'], 
             tax_summary['C']['taxable_amount'],
             tax_summary['D']['taxable_amount'],
-            # REMOVED tax_summary['E']['taxable_amount']
         ])
         
-        # Calculate total tax amount from summary (without 'E')
+        # Calculate total tax amount from summary (including only A-D since E is always 0)
         total_tax_amount = sum([
             tax_summary['A']['tax_amount'],
             tax_summary['B']['tax_amount'],
             tax_summary['C']['tax_amount'],
             tax_summary['D']['tax_amount'],
-            # REMOVED tax_summary['E']['tax_amount']
         ])
         
-        # Build main payload without 'E' fields
+        # Build main payload WITH 'E' fields (all set to 0)
         payload = {
             "tin": self.kra_config.tin,
             "bhfId": self.kra_config.bhf_id,
@@ -260,17 +262,17 @@ class KRAInvoiceService:
             "taxblAmtB": float(tax_summary['B']['taxable_amount']),
             "taxblAmtC": float(tax_summary['C']['taxable_amount']),
             "taxblAmtD": float(tax_summary['D']['taxable_amount']),
-            # REMOVED "taxblAmtE"
+            "taxblAmtE": 0.0,  # ADDED: Always 0
             "taxRtA": float(tax_summary['A']['rate']),
             "taxRtB": float(tax_summary['B']['rate']),
             "taxRtC": float(tax_summary['C']['rate']),
             "taxRtD": float(tax_summary['D']['rate']),
-            # REMOVED "taxRtE"
+            "taxRtE": 8.0,  # ADDED: Rate is 8% but amount is 0
             "taxAmtA": float(tax_summary['A']['tax_amount']),
             "taxAmtB": float(tax_summary['B']['tax_amount']),
             "taxAmtC": float(tax_summary['C']['tax_amount']),
             "taxAmtD": float(tax_summary['D']['tax_amount']),
-            # REMOVED "taxAmtE"
+            "taxAmtE": 0.0,  # ADDED: Always 0
             "totTaxblAmt": float(total_taxable_amount),
             "totTaxAmt": float(total_tax_amount),
             "totAmt": float(invoice.total_amt),
@@ -418,6 +420,7 @@ class KRAInvoiceService:
         qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
         return qr_data
     
+
 # kra/services.py - Add these methods to existing KRAService
 import logging
 from typing import Dict, Any, Optional
