@@ -43,12 +43,11 @@ class KRAInvoiceService:
         
     def map_tax_category(self, tax_code_ref, tax_percent):
         """
-        Map QuickBooks tax information to KRA tax categories (A-D only)
-        Based on QuickBooks standard tax codes:
-        - A: Exempt (0% tax)
-        - B: Standard VAT (16% tax)
-        - C: Zero-rated (0% tax)
-        - D: Non-VAT (0% tax)
+        Map QuickBooks tax information to KRA tax categories based on YOUR setup:
+        - A: Exempt (0% tax) - QuickBooks code 23
+        - B: Standard VAT (16% tax) - QuickBooks code 13
+        - C: Zero-rated (0% tax) - QuickBooks code 0
+        - D: Non-VAT (0% tax) - QuickBooks code 15 (based on your setup)
         """
         tax_code_ref = str(tax_code_ref or "").upper()
         
@@ -61,19 +60,24 @@ class KRAInvoiceService:
         else:
             tax_percent = Decimal('0.00')
         
-        # QuickBooks standard tax code mapping
+        # YOUR QuickBooks tax code mapping
         qb_tax_code_mapping = {
             # Category B: Standard VAT 16% - QuickBooks code 13
             '13': 'B',
             'TAX': 'B',
             'VAT': 'B',
+            '16': 'B',
+            '16%': 'B',
             
-            # Category C: Zero-rated (0%) - QuickBooks code 15
-            '15': 'C',
+            # Category D: Non-VAT (0%) - QuickBooks code 15 (YOUR SETUP)
+            '15': 'D',
+            'NON-VAT': 'D',
+            'NONVAT': 'D',
+            'NON': 'D',
+            
+            # Category C: Zero-rated (0%) - QuickBooks code 0
             '0': 'C',
             'ZERO': 'C',
-            'NON': 'C',
-            'NONE': 'C',
             'ZERO-RATED': 'C',
             'ZERORATED': 'C',
             
@@ -82,29 +86,29 @@ class KRAInvoiceService:
             'EXEMPT': 'A',
             'EXEMPTED': 'A',
             'EXEMPTION': 'A',
-            'EXEMPTIONS': 'A',
             
-            # Category D: Non-VAT (0%) - Other codes
-            'NON-VAT': 'D',
-            'OTHER': 'D',
+            # Default to D for anything else with 0% tax
             'D': 'D',
+            'OTHER': 'D',
         }
         
         # First try to map by QuickBooks tax code
         if tax_code_ref in qb_tax_code_mapping:
             return qb_tax_code_mapping[tax_code_ref]
         
-        # Fall back to tax percent mapping with logic for 0% cases
+        # Fall back to tax percent mapping
         if tax_percent == Decimal('16') or tax_percent == Decimal('16.00'):
             return 'B'  # 16% VAT
         elif tax_percent == Decimal('0') or tax_percent == Decimal('0.00'):
-            # For 0% tax, determine if it's A, C, or D
+            # For 0% tax, check the tax code reference
             if tax_code_ref == '23' or 'EXEMPT' in tax_code_ref:
                 return 'A'  # Exempt
-            elif tax_code_ref == '15' or 'ZERO' in tax_code_ref:
+            elif tax_code_ref == '0' or 'ZERO' in tax_code_ref:
                 return 'C'  # Zero-rated
+            elif tax_code_ref == '15' or 'NON' in tax_code_ref or 'NON-VAT' in tax_code_ref:
+                return 'D'  # Non-VAT
             else:
-                return 'D'  # Non-VAT (default for 0%)
+                return 'D'  # Default to Non-VAT for any other 0% tax
         else:
             return 'D'  # Other/Non-VAT for any other tax rate
         
