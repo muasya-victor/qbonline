@@ -337,9 +337,9 @@ class KRAInvoiceService:
             }
             
             # Submit to KRA - use the same endpoint as credit notes for consistency
-            # http://204.12.245.182:8985/trnsSales/saveSales
+            # 'http://204.12.227.240:8089/trnsSales/saveSales',
             response = requests.post(
-                'http://204.12.227.240:8089/trnsSales/saveSales',
+                'http://204.12.245.182:8985/trnsSales/saveSales',
                 json=payload,
                 headers=headers,
                 timeout=30
