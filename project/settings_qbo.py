@@ -56,6 +56,7 @@ if QBO_ENVIRONMENT == "development":
 
 
 print(QBO_ENVIRONMENT, 'env used')
+print(QBO_REDIRECT_URI_FRONTEND, 'redirect uir')
 
 # Derived endpoints using BASE_URL
 COMPANY_INFO_URL = f"{BASE_URL}/v3/company/{{realm_id}}/companyinfo/{{realm_id}}"
