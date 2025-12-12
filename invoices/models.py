@@ -3,6 +3,9 @@ from django.conf import settings
 from common.models import TimeStampModel
 from companies.models import Company
 from customers.models import Customer
+from django.db.models import Sum
+from decimal import Decimal
+
 
 User = settings.AUTH_USER_MODEL
 
@@ -62,6 +65,84 @@ class Invoice(TimeStampModel):
             models.Index(fields=['customer_name']),
         ]
     
+    @property
+    def total_credits_applied(self):
+        """
+        Calculate total amount of all credit notes linked to this invoice.
+        Safe to add - doesn't affect existing code.
+        """
+        # Use aggregation to sum all credit notes
+        result = self.credit_notes.aggregate(
+            total=Sum('total_amt')
+        )
+        return result['total'] or Decimal('0.00')
+    
+    @property
+    def available_credit_balance(self):
+        """
+        Calculate available balance for new credit notes.
+        Returns the amount that can still be credited.
+        """
+        total_credits = self.total_credits_applied
+        available = self.total_amt - total_credits
+        
+        # Ensure we don't return negative values
+        return max(Decimal('0.00'), available)
+    
+    @property
+    def is_fully_credited(self):
+        """
+        Check if invoice is fully credited (with tolerance for rounding errors).
+        Uses 1 cent tolerance to handle decimal precision issues.
+        """
+        return self.available_credit_balance <= Decimal('0.01')
+    
+    @property
+    def credit_utilization_percentage(self):
+        """
+        Get percentage of invoice that has been credited.
+        Useful for reporting.
+        """
+        if self.total_amt == Decimal('0.00'):
+            return Decimal('0.00')
+        
+        return (self.total_credits_applied / self.total_amt) * Decimal('100')
+    
+    def can_accept_credit_note(self, credit_amount: Decimal) -> bool:
+        """
+        Check if invoice can accept a credit note of the given amount.
+        
+        Args:
+            credit_amount: The amount to check
+            
+        Returns:
+            bool: True if invoice can accept the credit note
+        """
+        if credit_amount <= Decimal('0.00'):
+            return False
+        
+        return credit_amount <= self.available_credit_balance
+    
+    def get_credit_summary(self) -> dict:
+        """
+        Get comprehensive summary of credits for this invoice.
+        
+        Returns:
+            dict: Summary with total credits, available balance, etc.
+        """
+        return {
+            'invoice_id': self.id,
+            'invoice_number': self.doc_number,
+            'invoice_total': float(self.total_amt),
+            'total_credits_applied': float(self.total_credits_applied),
+            'available_credit_balance': float(self.available_credit_balance),
+            'is_fully_credited': self.is_fully_credited,
+            'credit_utilization_percentage': float(self.credit_utilization_percentage),
+            'linked_credit_notes_count': self.credit_notes.count(),
+        }
+    
+    
+    # All existing methods remain unchanged
     def __str__(self):
         return f"Invoice {self.doc_number or self.qb_invoice_id} - {self.customer_name}"
 
