@@ -299,11 +299,11 @@ class InvoiceCreditSummarySerializer(serializers.ModelSerializer):
     """Serializer for invoice with credit summary information"""
     
     customer_display = serializers.SerializerMethodField()
-    total_credits_applied = serializers.DecimalField(
+    calculated_total_credits = serializers.DecimalField(
         max_digits=15, 
         decimal_places=2, 
         read_only=True,
-        source='get_total_credits_applied_value'  # Use a method instead of property
+        source='get_calculated_total_credits_value'  # Use a method instead of property
     )
     available_balance = serializers.DecimalField(
         max_digits=15, 
@@ -324,7 +324,7 @@ class InvoiceCreditSummarySerializer(serializers.ModelSerializer):
         fields = [
             'id', 'doc_number', 'qb_invoice_id', 'txn_date', 'due_date',
             'total_amt', 'balance', 'customer_name', 'customer_display',
-            'total_credits_applied', 'available_balance', 'is_fully_credited',
+            'calculated_total_credits', 'available_balance', 'is_fully_credited',
             'credit_utilization_percentage'
         ]
     
@@ -337,9 +337,9 @@ class InvoiceCreditSummarySerializer(serializers.ModelSerializer):
     # Add these methods to the Invoice model to avoid property setter issues
     # OR use these helper methods in the serializer
     
-    def get_total_credits_applied_value(self, obj):
+    def get_calculated_total_credits_value(self, obj):
         """Safe method to get total credits applied"""
-        return obj.total_credits_applied
+        return obj.calculated_total_credits
     
     def get_available_balance_value(self, obj):
         """Safe method to get available balance"""
@@ -384,7 +384,7 @@ class CreditValidationResponseSerializer(serializers.Serializer):
     available_balance = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
     invoice_number = serializers.CharField(required=False)
     invoice_total = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
-    total_credits_applied = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    calculated_total_credits = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
     requested_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
     error = serializers.CharField(required=False)
     
@@ -395,7 +395,7 @@ class CreditValidationResponseSerializer(serializers.Serializer):
         # Convert Decimal fields to float for JSON serialization
         decimal_fields = [
             'available_balance', 'invoice_total', 
-            'total_credits_applied', 'requested_amount'
+            'calculated_total_credits', 'requested_amount'
         ]
         
         for field in decimal_fields:
@@ -438,8 +438,8 @@ class InvoiceWithCreditInfoSerializer(serializers.ModelSerializer):
             return obj.is_fully_credited
         
         # Calculate if not annotated
-        if hasattr(obj, 'total_credits_applied'):
-            available = obj.total_amt - obj.total_credits_applied
+        if hasattr(obj, 'calculated_total_credits'):
+            available = obj.total_amt - obj.calculated_total_credits
             return available <= Decimal('0.01')
         
         return False  # Default to not fully credited

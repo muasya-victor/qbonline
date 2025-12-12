@@ -713,7 +713,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 
                 # Access annotated fields - they should now be preserved
                 available_balance = invoice.available_balance
-                total_credits_applied = invoice.total_credits_applied
+                calculated_total_credits = invoice.calculated_total_credits
                 
                 # Check if invoice is fully credited
                 is_fully_credited = available_balance <= Decimal('0.01')
@@ -727,7 +727,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                     'customer': SimpleCustomerSerializer(invoice.customer).data if invoice.customer else None,
                     'customer_display': customer_display,
                     'available_balance': available_balance,
-                    'total_credits_applied': total_credits_applied,
+                    'calculated_total_credits': calculated_total_credits,
                     'is_fully_credited': is_fully_credited,
                 })
             
@@ -937,7 +937,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'message': error if not is_valid else details.get('message', 'Validation successful'),
                 'invoice_number': details.get('invoice_number'),
                 'invoice_total': details.get('invoice_total'),
-                'total_credits_applied': details.get('total_credits_applied'),
+                'calculated_total_credits': details.get('calculated_total_credits'),
                 'available_balance': details.get('available_balance'),
                 'requested_amount': details.get('requested_amount'),
             }
@@ -990,7 +990,7 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             
             if details:
                 response_data.update({
-                    'total_credits_applied': details.get('total_credits_applied'),
+                    'calculated_total_credits': details.get('calculated_total_credits'),
                     'available_balance': details.get('available_balance'),
                 })
             
@@ -1087,18 +1087,18 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 available_balance = getattr(invoice, 'available_balance', invoice.total_amt)
                 
                 # Get total credits applied from annotated field
-                total_credits_applied = getattr(invoice, 'total_credits_applied', Decimal('0.00'))
+                calculated_total_credits = getattr(invoice, 'calculated_total_credits', Decimal('0.00'))
                 
                 # Calculate credit utilization percentage
                 credit_utilization_percentage = Decimal('0.00')
                 if invoice.total_amt > Decimal('0.00'):
-                    credit_utilization_percentage = (total_credits_applied / invoice.total_amt) * Decimal('100')
+                    credit_utilization_percentage = (calculated_total_credits / invoice.total_amt) * Decimal('100')
                 
                 invoices_data.append({
                     'id': invoice.id,
                     'doc_number': invoice.doc_number,
                     'total_amt': invoice.total_amt,
-                    'total_credits_applied': total_credits_applied,
+                    'calculated_total_credits': calculated_total_credits,
                     'available_balance': available_balance,
                     'is_fully_credited': available_balance <= Decimal('0.01'),
                     'credit_utilization_percentage': credit_utilization_percentage,

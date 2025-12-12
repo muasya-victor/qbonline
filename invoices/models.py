@@ -66,24 +66,22 @@ class Invoice(TimeStampModel):
         ]
     
     @property
-    def total_credits_applied(self):
+    def calculated_total_credits(self):
         """
         Calculate total amount of all credit notes linked to this invoice.
-        Safe to add - doesn't affect existing code.
         """
-        # Use aggregation to sum all credit notes
         result = self.credit_notes.aggregate(
             total=Sum('total_amt')
         )
         return result['total'] or Decimal('0.00')
-    
+        
     @property
     def available_credit_balance(self):
         """
         Calculate available balance for new credit notes.
         Returns the amount that can still be credited.
         """
-        total_credits = self.total_credits_applied
+        total_credits = self.calculated_total_credits
         available = self.total_amt - total_credits
         
         # Ensure we don't return negative values
@@ -106,7 +104,7 @@ class Invoice(TimeStampModel):
         if self.total_amt == Decimal('0.00'):
             return Decimal('0.00')
         
-        return (self.total_credits_applied / self.total_amt) * Decimal('100')
+        return (self.calculated_total_credits / self.total_amt) * Decimal('100')
     
     def can_accept_credit_note(self, credit_amount: Decimal) -> bool:
         """
@@ -134,7 +132,7 @@ class Invoice(TimeStampModel):
             'invoice_id': self.id,
             'invoice_number': self.doc_number,
             'invoice_total': float(self.total_amt),
-            'total_credits_applied': float(self.total_credits_applied),
+            'calculated_total_credits': float(self.calculated_total_credits),
             'available_credit_balance': float(self.available_credit_balance),
             'is_fully_credited': self.is_fully_credited,
             'credit_utilization_percentage': float(self.credit_utilization_percentage),
@@ -172,12 +170,12 @@ class Invoice(TimeStampModel):
             return self.available_balance
         return self.available_credit_balance
 
-    def get_annotated_total_credits_applied(self):
+    def get_annotated_calculated_total_credits(self):
         """Safely get total credits applied from annotated field or calculate"""
         # Check for the annotated field (instance attribute)
-        if hasattr(self, '_total_credits_applied') or 'total_credits_applied' in self.__dict__:
-            return self.total_credits_applied  
-        return self.calculate_total_credits_applied() 
+        if hasattr(self, '_calculated_total_credits') or 'calculated_total_credits' in self.__dict__:
+            return self.calculated_total_credits  
+        return self.calculate_calculated_total_credits() 
 
 class InvoiceLine(TimeStampModel):
     """Invoice line items"""

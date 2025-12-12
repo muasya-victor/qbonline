@@ -54,7 +54,7 @@ class CreditNoteValidationService:
             credit_utilization_percentage = (total_credits / invoice.total_amt) * Decimal('100')
         
         return {
-            'total_credits_applied': total_credits,
+            'calculated_total_credits': total_credits,
             'available_credit_balance': available_balance,
             'is_fully_credited': is_fully_credited,
             'credit_utilization_percentage': credit_utilization_percentage,
@@ -100,7 +100,7 @@ class CreditNoteValidationService:
                 details = {
                     'invoice_number': invoice.doc_number,
                     'invoice_total': float(invoice.total_amt),
-                    'total_credits_applied': float(summary['total_credits_applied']),
+                    'calculated_total_credits': float(summary['calculated_total_credits']),
                     'available_balance': float(summary['available_credit_balance']),
                 }
                 return False, f"Invoice {invoice.doc_number} is already fully credited", details
@@ -111,7 +111,7 @@ class CreditNoteValidationService:
                 details = {
                     'invoice_number': invoice.doc_number,
                     'invoice_total': float(invoice.total_amt),
-                    'total_credits_applied': float(summary['total_credits_applied']),
+                    'calculated_total_credits': float(summary['calculated_total_credits']),
                     'available_balance': float(available_balance),
                     'requested_amount': float(credit_note_amount),
                     'shortfall': float(credit_note_amount - available_balance),
@@ -122,7 +122,7 @@ class CreditNoteValidationService:
             details = {
                 'invoice_number': invoice.doc_number,
                 'invoice_total': float(invoice.total_amt),
-                'total_credits_applied': float(summary['total_credits_applied']),
+                'calculated_total_credits': float(summary['calculated_total_credits']),
                 'available_balance': float(summary['available_credit_balance']),
                 'requested_amount': float(credit_note_amount),
                 'remaining_balance_after': float(summary['available_credit_balance'] - credit_note_amount),
@@ -183,8 +183,8 @@ class CreditNoteValidationService:
                 'invoice_id': str(invoice.id),
                 'invoice_number': invoice.doc_number,
                 'invoice_total': float(invoice.total_amt),
-                'total_credits_before': float(summary['total_credits_applied'] - credit_note.total_amt),
-                'total_credits_after': float(summary['total_credits_applied']),
+                'total_credits_before': float(summary['calculated_total_credits'] - credit_note.total_amt),
+                'total_credits_after': float(summary['calculated_total_credits']),
                 'available_balance_before': float(summary['available_credit_balance'] + credit_note.total_amt),
                 'available_balance_after': float(summary['available_credit_balance']),
                 'link_successful': True,
@@ -288,7 +288,7 @@ class CreditNoteValidationService:
                 'customer_name': invoice.customer_name,
                 'customer_display': invoice.customer.display_name if invoice.customer else invoice.customer_name,
                 'invoice_total': float(invoice.total_amt),
-                'total_credits_applied': float(summary['total_credits_applied']),
+                'calculated_total_credits': float(summary['calculated_total_credits']),
                 'available_credit_balance': float(summary['available_credit_balance']),
                 'is_fully_credited': summary['is_fully_credited'],
                 'credit_utilization_percentage': float(summary['credit_utilization_percentage']),

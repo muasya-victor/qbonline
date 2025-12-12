@@ -170,7 +170,7 @@ class InvoiceFilterService:
         """
         # Get all invoices with credit annotation
         invoices = Invoice.objects.filter(company=company).annotate(
-            total_credits_applied=Coalesce(
+            calculated_total_credits=Coalesce(
                 models.Sum('credit_notes__total_amt'),
                 Value(Decimal('0.00'), output_field=DecimalField(max_digits=15, decimal_places=2))
             ),
