@@ -116,7 +116,7 @@ class CreditNoteValidationService:
                     'requested_amount': float(credit_note_amount),
                     'shortfall': float(credit_note_amount - available_balance),
                 }
-                return False, f"Credit amount (${credit_note_amount}) exceeds available balance (${available_balance})", details
+                return False, f"Credit amount ({credit_note_amount}) exceeds available balance ({available_balance})", details
             
             # Success - return details
             details = {
