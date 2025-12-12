@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from decimal import Decimal
 from .models import CreditNote, CreditNoteLine
 from invoices.models import Invoice
 from companies.models import Company
@@ -13,9 +14,11 @@ class SimpleCustomerSerializer(serializers.ModelSerializer):
         model = Customer
         fields = ['id', 'display_name', 'company_name', 'kra_pin']
 
+from customers.serializers import CustomerSerializer
+
 class InvoiceDropdownSerializer(serializers.ModelSerializer):
     """Serializer for invoice dropdown with customer info"""
-    customer = SimpleCustomerSerializer(read_only=True)
+    customer = CustomerSerializer(read_only=True)  # Changed from SimpleCustomerSerializer
     customer_display = serializers.SerializerMethodField()
     
     class Meta:
@@ -33,7 +36,7 @@ class InvoiceDropdownSerializer(serializers.ModelSerializer):
 
 class RelatedInvoiceSerializer(serializers.ModelSerializer):
     """Enhanced serializer for related invoice information with customer details"""
-    customer = SimpleCustomerSerializer(read_only=True)
+    customer = CustomerSerializer(read_only=True)  # Changed from SimpleCustomerSerializer
     customer_display = serializers.SerializerMethodField()
     
     class Meta:
@@ -149,17 +152,74 @@ class CreditNoteSerializer(serializers.ModelSerializer):
         return None
 
 class CreditNoteUpdateSerializer(serializers.ModelSerializer):
-    """Serializer for updating credit note related_invoice field"""
+    """Serializer for updating credit note related_invoice field WITH VALIDATION"""
     
     class Meta:
         model = CreditNote
         fields = ['related_invoice']
     
     def validate_related_invoice(self, value):
-        """Validate that the invoice belongs to the same company"""
-        if value and value.company != self.instance.company:
+        """Validate that the invoice belongs to the same company AND has available balance"""
+        if not value:
+            return value
+        
+        # Get the credit note instance (for partial updates, self.instance exists)
+        credit_note = self.instance
+        
+        if not credit_note:
+            # This is a create operation, validation will happen in validate()
+            return value
+        
+        # Check company match
+        if value.company != credit_note.company:
             raise serializers.ValidationError("Invoice does not belong to the same company")
+        
+        # Import validation service
+        from creditnote.custom_services.credit_validation_service import CreditNoteValidationService
+        
+        # Validate credit amount against invoice
+        is_valid, error, details = CreditNoteValidationService.validate_credit_amount(
+            credit_note.total_amt,
+            str(value.id),
+            str(credit_note.company.id)
+        )
+        
+        if not is_valid:
+            raise serializers.ValidationError(error)
+        
         return value
+    
+    def validate(self, attrs):
+        """Additional validation for the entire update"""
+        attrs = super().validate(attrs)
+        
+        # If related_invoice is being set, and this is a create operation,
+        # we need to validate the credit amount
+        if 'related_invoice' in attrs and not self.instance:
+            # This is a create operation
+            related_invoice = attrs['related_invoice']
+            credit_amount = attrs.get('total_amt', Decimal('0.00'))
+            
+            if credit_amount <= Decimal('0.00'):
+                raise serializers.ValidationError({
+                    'total_amt': 'Credit note amount must be greater than zero'
+                })
+            
+            # Import validation service
+            from creditnote.custom_services.credit_validation_service import CreditNoteValidationService
+            
+            is_valid, error, details = CreditNoteValidationService.validate_credit_amount(
+                credit_amount,
+                str(related_invoice.id),
+                str(attrs.get('company', None))
+            )
+            
+            if not is_valid:
+                raise serializers.ValidationError({
+                    'related_invoice': error
+                })
+        
+        return attrs
 
 class CreditNoteDetailSerializer(CreditNoteSerializer):
     """Extended serializer for detailed credit note view with additional computed fields"""
@@ -233,3 +293,155 @@ class CreditNoteSummarySerializer(serializers.ModelSerializer):
         
         latest_submission = obj.kra_submissions.order_by('-created_at').first()
         return latest_submission.status if latest_submission else 'not_submitted'
+    
+
+class InvoiceCreditSummarySerializer(serializers.ModelSerializer):
+    """Serializer for invoice with credit summary information"""
+    
+    customer_display = serializers.SerializerMethodField()
+    total_credits_applied = serializers.DecimalField(
+        max_digits=15, 
+        decimal_places=2, 
+        read_only=True,
+        source='get_total_credits_applied_value'  # Use a method instead of property
+    )
+    available_balance = serializers.DecimalField(
+        max_digits=15, 
+        decimal_places=2, 
+        read_only=True,
+        source='get_available_balance_value'  # Use a method instead of property
+    )
+    is_fully_credited = serializers.BooleanField(read_only=True, source='get_is_fully_credited_value')
+    credit_utilization_percentage = serializers.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        read_only=True,
+        source='get_credit_utilization_percentage_value'
+    )
+    
+    class Meta:
+        model = Invoice
+        fields = [
+            'id', 'doc_number', 'qb_invoice_id', 'txn_date', 'due_date',
+            'total_amt', 'balance', 'customer_name', 'customer_display',
+            'total_credits_applied', 'available_balance', 'is_fully_credited',
+            'credit_utilization_percentage'
+        ]
+    
+    def get_customer_display(self, obj):
+        """Get display name for customer"""
+        if obj.customer:
+            return obj.customer.display_name or obj.customer.company_name
+        return obj.customer_name or "Unknown Customer"
+    
+    # Add these methods to the Invoice model to avoid property setter issues
+    # OR use these helper methods in the serializer
+    
+    def get_total_credits_applied_value(self, obj):
+        """Safe method to get total credits applied"""
+        return obj.total_credits_applied
+    
+    def get_available_balance_value(self, obj):
+        """Safe method to get available balance"""
+        return obj.available_credit_balance
+    
+    def get_is_fully_credited_value(self, obj):
+        """Safe method to check if fully credited"""
+        return obj.is_fully_credited
+    
+    def get_credit_utilization_percentage_value(self, obj):
+        """Safe method to get credit utilization percentage"""
+        return obj.credit_utilization_percentage
+
+class CreditValidationRequestSerializer(serializers.Serializer):
+    """Serializer for credit validation requests"""
+    
+    invoice_id = serializers.UUIDField(required=True)
+    credit_amount = serializers.DecimalField(
+        max_digits=15, 
+        decimal_places=2, 
+        required=True,
+        min_value=Decimal('0.01')
+    )
+    
+    def validate(self, attrs):
+        """Additional validation"""
+        credit_amount = attrs['credit_amount']
+        
+        if credit_amount <= Decimal('0.00'):
+            raise serializers.ValidationError({
+                'credit_amount': 'Credit amount must be greater than zero'
+            })
+        
+        return attrs
+
+
+class CreditValidationResponseSerializer(serializers.Serializer):
+    """Serializer for credit validation responses"""
+    
+    valid = serializers.BooleanField()
+    message = serializers.CharField()
+    available_balance = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    invoice_number = serializers.CharField(required=False)
+    invoice_total = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    total_credits_applied = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    requested_amount = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    error = serializers.CharField(required=False)
+    
+    def to_representation(self, instance):
+        """Custom representation"""
+        representation = super().to_representation(instance)
+        
+        # Convert Decimal fields to float for JSON serialization
+        decimal_fields = [
+            'available_balance', 'invoice_total', 
+            'total_credits_applied', 'requested_amount'
+        ]
+        
+        for field in decimal_fields:
+            if field in representation and representation[field] is not None:
+                representation[field] = float(representation[field])
+        
+        return representation
+
+
+class InvoiceWithCreditInfoSerializer(serializers.ModelSerializer):
+    """Enhanced invoice serializer with credit information for dropdowns"""
+    
+    customer_display = serializers.SerializerMethodField()
+    available_balance = serializers.SerializerMethodField()
+    is_fully_credited = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Invoice
+        fields = [
+            'id', 'doc_number', 'qb_invoice_id', 'txn_date', 
+            'total_amt', 'customer', 'customer_display',
+            'available_balance', 'is_fully_credited'
+        ]
+    
+    def get_customer_display(self, obj):
+        """Get display name for customer"""
+        if obj.customer:
+            return obj.customer.display_name or obj.customer.company_name
+        return obj.customer_name or "Unknown Customer"
+    
+    def get_available_balance(self, obj):
+        """Get available credit balance"""
+        if hasattr(obj, 'available_balance'):
+            return obj.available_balance
+        return obj.total_amt  # Default to full amount if no credits
+    
+    def get_is_fully_credited(self, obj):
+        """Check if invoice is fully credited"""
+        if hasattr(obj, 'is_fully_credited'):
+            return obj.is_fully_credited
+        
+        # Calculate if not annotated
+        if hasattr(obj, 'total_credits_applied'):
+            available = obj.total_amt - obj.total_credits_applied
+            return available <= Decimal('0.01')
+        
+        return False  # Default to not fully credited
+
+

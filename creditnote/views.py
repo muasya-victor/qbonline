@@ -31,6 +31,17 @@ from django.shortcuts import get_object_or_404
 import base64
 from weasyprint import HTML
 from django.shortcuts import render
+from decimal import Decimal
+from creditnote.custom_services.credit_validation_service import CreditNoteValidationService
+from creditnote.custom_services.invoice_filter_service import InvoiceFilterService
+from creditnote.serializers import (
+    CreditValidationRequestSerializer,
+    CreditValidationResponseSerializer,
+    InvoiceWithCreditInfoSerializer,
+    InvoiceCreditSummarySerializer
+
+)
+from customers.serializers import SimpleCustomerSerializer
 
 
 def get_active_company(user):
@@ -610,40 +621,49 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
 
     @action(detail=True, methods=['patch', 'put'])
     def update_related_invoice(self, request, pk=None):
-        """Update the related invoice for a credit note"""
+        """Update the related invoice for a credit note WITH VALIDATION"""
         try:
             credit_note = self.get_object()
-            serializer = CreditNoteUpdateSerializer(
-                credit_note, 
-                data=request.data, 
-                partial=True
-            )
             
-            if serializer.is_valid():
-                serializer.save()
-                
-                # Return updated credit note with related invoice data
-                updated_serializer = CreditNoteSerializer(credit_note)
-                return Response({
-                    'success': True,
-                    'message': 'Related invoice updated successfully',
-                    'credit_note': updated_serializer.data
-                })
-            else:
+            # Validate input
+            invoice_id = request.data.get('related_invoice')
+            if not invoice_id:
                 return Response({
                     'success': False,
-                    'error': serializer.errors
+                    'error': 'related_invoice is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
+            
+            # Validate and link using the validation service
+            is_valid, error, details = CreditNoteValidationService.validate_and_link_credit_note(
+                credit_note, 
+                invoice_id
+            )
+            
+            if not is_valid:
+                return Response({
+                    'success': False,
+                    'error': error,
+                    'details': details
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Return updated credit note with success message
+            updated_serializer = CreditNoteSerializer(credit_note)
+            return Response({
+                'success': True,
+                'message': 'Related invoice updated successfully',
+                'credit_note': updated_serializer.data,
+                'validation_details': details
+            })
+            
         except Exception as e:
             return Response({
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        
     @action(detail=False, methods=['get'], url_path='available-invoices', url_name='available-invoices')
     def available_invoices(self, request):
-        """Get available invoices that can be linked to credit notes"""
+        """Get available invoices that can be linked to credit notes WITH PAGINATION"""
         try:
             active_company = get_active_company(request.user)
             if not active_company:
@@ -655,44 +675,84 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
             # Get query parameters
             search = request.query_params.get('search', '')
             customer_name = request.query_params.get('customer_name', '')
-            limit = int(request.query_params.get('limit', 50))
+            min_balance = request.query_params.get('min_balance')
+            page = int(request.query_params.get('page', 1))
+            page_size = min(int(request.query_params.get('page_size', 20)), 100)
+            
+            # Parse min_balance if provided
+            min_available_balance = None
+            if min_balance:
+                try:
+                    min_available_balance = Decimal(min_balance)
+                except:
+                    min_available_balance = None
 
-            # Base queryset - invoices from the same company
-            invoices = Invoice.objects.filter(company=active_company)
-
-            # Apply search filter
-            if search:
-                invoices = invoices.filter(
-                    Q(doc_number__icontains=search) |
-                    Q(customer_name__icontains=search) |
-                    Q(qb_invoice_id__icontains=search)
-                )
-
-            # Filter by customer name if provided
-            if customer_name:
-                invoices = invoices.filter(
-                    Q(customer_name__icontains=customer_name) |
-                    Q(customer__display_name__icontains=customer_name) |
-                    Q(customer__company_name__icontains=customer_name)
-                )
-
-            # Order by most recent first and limit results
-            invoices = invoices.select_related('customer').order_by('-txn_date')[:limit]
-
-            serializer = InvoiceDropdownSerializer(invoices, many=True)
-
+            # Use the filtering service to get available invoices WITH PAGINATION
+            paginated_results = InvoiceFilterService.get_invoices_available_for_credit(
+                company=active_company,
+                search=search,
+                customer_name=customer_name,
+                min_available_balance=min_available_balance,
+                exclude_fully_credited=True,
+                page=page,
+                page_size=page_size
+            )
+            
+            # Get summary statistics
+            summary = InvoiceFilterService.get_invoices_summary(active_company)
+            
+            # Prepare response data - annotations should be preserved
+            invoices_data = []
+            for invoice in paginated_results['results']:
+                # Get customer display name
+                customer_display = ""
+                if invoice.customer:
+                    customer_display = invoice.customer.display_name or invoice.customer.company_name
+                else:
+                    customer_display = invoice.customer_name or "Unknown Customer"
+                
+                # Access annotated fields - they should now be preserved
+                available_balance = invoice.available_balance
+                total_credits_applied = invoice.total_credits_applied
+                
+                # Check if invoice is fully credited
+                is_fully_credited = available_balance <= Decimal('0.01')
+                
+                invoices_data.append({
+                    'id': invoice.id,
+                    'doc_number': invoice.doc_number,
+                    'qb_invoice_id': invoice.qb_invoice_id,
+                    'txn_date': invoice.txn_date,
+                    'total_amt': invoice.total_amt,
+                    'customer': SimpleCustomerSerializer(invoice.customer).data if invoice.customer else None,
+                    'customer_display': customer_display,
+                    'available_balance': available_balance,
+                    'total_credits_applied': total_credits_applied,
+                    'is_fully_credited': is_fully_credited,
+                })
+            
             return Response({
                 'success': True,
-                'invoices': serializer.data,
-                'count': len(invoices)
+                'invoices': invoices_data,
+                'pagination': {
+                    'count': paginated_results['total_count'],
+                    'page': paginated_results['page'],
+                    'page_size': paginated_results['page_size'],
+                    'next': paginated_results['page'] + 1 if paginated_results['has_next'] else None,
+                    'previous': paginated_results['page'] - 1 if paginated_results['has_previous'] else None,
+                    'total_pages': paginated_results['total_pages']
+                },
+                'summary': summary
             })
 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             return Response({
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+        
     @action(detail=True, methods=['delete'])
     def remove_related_invoice(self, request, pk=None):
         """Remove the related invoice from a credit note"""
@@ -835,3 +895,235 @@ class CreditNoteViewSet(viewsets.ReadOnlyModelViewSet):
                 'to_date': to_date
             }
         })
+    
+    @action(detail=False, methods=['post'], url_path='validate-credit', url_name='validate-credit')
+    def validate_credit_linkage(self, request):
+        """
+        Pre-validate credit note linkage to invoice.
+        
+        Request body:
+        {
+            "invoice_id": "uuid-of-invoice",
+            "credit_amount": 100.00
+        }
+        """
+        try:
+            # Validate input
+            serializer = CreditValidationRequestSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response({
+                    'success': False,
+                    'error': 'Invalid request data',
+                    'errors': serializer.errors
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            invoice_id = serializer.validated_data['invoice_id']
+            credit_amount = serializer.validated_data['credit_amount']
+            
+            # Get active company for context
+            active_company = get_active_company(request.user)
+            company_id = str(active_company.id) if active_company else None
+            
+            # Validate using the service
+            is_valid, error, details = CreditNoteValidationService.validate_credit_amount(
+                credit_amount, 
+                str(invoice_id),
+                company_id
+            )
+            
+            # Prepare response
+            response_data = {
+                'valid': is_valid,
+                'message': error if not is_valid else details.get('message', 'Validation successful'),
+                'invoice_number': details.get('invoice_number'),
+                'invoice_total': details.get('invoice_total'),
+                'total_credits_applied': details.get('total_credits_applied'),
+                'available_balance': details.get('available_balance'),
+                'requested_amount': details.get('requested_amount'),
+            }
+            
+            if not is_valid:
+                response_data['error'] = error
+            
+            response_serializer = CreditValidationResponseSerializer(response_data)
+            
+            return Response({
+                'success': True,
+                'validation': response_serializer.data
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['get'], url_path='validate-current', url_name='validate-current')
+    def validate_current_credit_note(self, request, pk=None):
+        """Validate if the current credit note can be linked to its invoice"""
+        try:
+            credit_note = self.get_object()
+            
+            if not credit_note.related_invoice:
+                return Response({
+                    'success': True,
+                    'valid': True,
+                    'message': 'Credit note is not linked to any invoice',
+                    'has_invoice': False
+                })
+            
+            # Validate the current linkage
+            is_valid, error, details = CreditNoteValidationService.validate_credit_amount(
+                credit_note.total_amt,
+                str(credit_note.related_invoice.id),
+                str(credit_note.company.id) if credit_note.company else None
+            )
+            
+            response_data = {
+                'valid': is_valid,
+                'message': error if not is_valid else 'Credit note is properly linked',
+                'has_invoice': True,
+                'invoice_number': credit_note.related_invoice.doc_number,
+                'credit_note_amount': float(credit_note.total_amt),
+                'invoice_total': float(credit_note.related_invoice.total_amt),
+            }
+            
+            if details:
+                response_data.update({
+                    'total_credits_applied': details.get('total_credits_applied'),
+                    'available_balance': details.get('available_balance'),
+                })
+            
+            if not is_valid:
+                response_data['error'] = error
+            
+            return Response({
+                'success': True,
+                'validation': response_data
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=False, methods=['get'], url_path='invoice-credit-summary/(?P<invoice_id>[^/.]+)', url_name='invoice-credit-summary')
+    def invoice_credit_summary(self, request, invoice_id=None):
+        """Get detailed credit summary for a specific invoice"""
+        try:
+            active_company = get_active_company(request.user)
+            if not active_company:
+                return Response({
+                    'success': False,
+                    'error': 'No active company selected'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get the summary using the validation service
+            summary = CreditNoteValidationService.get_invoice_credit_summary(invoice_id)
+            
+            if 'error' in summary:
+                return Response({
+                    'success': False,
+                    'error': summary['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Verify the invoice belongs to the user's company
+            try:
+                invoice = Invoice.objects.get(id=invoice_id, company=active_company)
+            except Invoice.DoesNotExist:
+                return Response({
+                    'success': False,
+                    'error': 'Invoice not found or does not belong to your company'
+                }, status=status.HTTP_403_FORBIDDEN)
+            
+            return Response({
+                'success': True,
+                'summary': summary
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+    @action(detail=False, methods=['get'], url_path='fully-credited-invoices', url_name='fully-credited-invoices')
+    def fully_credited_invoices(self, request):
+        """Get list of fully credited invoices"""
+        try:
+            active_company = get_active_company(request.user)
+            if not active_company:
+                return Response({
+                    'success': False,
+                    'error': 'No active company selected'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get query parameters
+            limit = int(request.query_params.get('limit', 50))
+            offset = int(request.query_params.get('offset', 0))
+            
+            # Get fully credited invoices using the filtering service
+            invoices = InvoiceFilterService.get_fully_credited_invoices(
+                active_company, 
+                limit=limit
+            )
+            
+            # Apply offset manually since we're using annotation
+            if offset > 0:
+                invoices = invoices[offset:]
+            
+            # Prepare response data manually since serializer might not handle annotated fields
+            invoices_data = []
+            for invoice in invoices:
+                # Get customer display name
+                customer_display = ""
+                if invoice.customer:
+                    customer_display = invoice.customer.display_name or invoice.customer.company_name
+                else:
+                    customer_display = invoice.customer_name or "Unknown Customer"
+                
+                # Get available balance from annotated field
+                available_balance = getattr(invoice, 'available_balance', invoice.total_amt)
+                
+                # Get total credits applied from annotated field
+                total_credits_applied = getattr(invoice, 'total_credits_applied', Decimal('0.00'))
+                
+                # Calculate credit utilization percentage
+                credit_utilization_percentage = Decimal('0.00')
+                if invoice.total_amt > Decimal('0.00'):
+                    credit_utilization_percentage = (total_credits_applied / invoice.total_amt) * Decimal('100')
+                
+                invoices_data.append({
+                    'id': invoice.id,
+                    'doc_number': invoice.doc_number,
+                    'total_amt': invoice.total_amt,
+                    'total_credits_applied': total_credits_applied,
+                    'available_balance': available_balance,
+                    'is_fully_credited': available_balance <= Decimal('0.01'),
+                    'credit_utilization_percentage': credit_utilization_percentage,
+                    'customer_name': invoice.customer_name,
+                    'customer_display': customer_display,
+                })
+            
+            return Response({
+                'success': True,
+                'invoices': invoices_data,
+                'count': len(invoices_data),
+                'pagination': {
+                    'limit': limit,
+                    'offset': offset,
+                    'has_more': len(invoices_data) == limit
+                }
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+
+        

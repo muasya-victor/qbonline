@@ -164,6 +164,20 @@ class Invoice(TimeStampModel):
             return "stub"
         else:
             return "complete"
+        
+    # In the Invoice model class
+    def get_annotated_available_balance(self):
+        """Safely get available balance from annotated field or calculate"""
+        if hasattr(self, 'available_balance'):
+            return self.available_balance
+        return self.available_credit_balance
+
+    def get_annotated_total_credits_applied(self):
+        """Safely get total credits applied from annotated field or calculate"""
+        # Check for the annotated field (instance attribute)
+        if hasattr(self, '_total_credits_applied') or 'total_credits_applied' in self.__dict__:
+            return self.total_credits_applied  
+        return self.calculate_total_credits_applied() 
 
 class InvoiceLine(TimeStampModel):
     """Invoice line items"""

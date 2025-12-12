@@ -67,3 +67,15 @@ class CustomerCreateUpdateSerializer(serializers.ModelSerializer):
                     'KRA PIN must be in the format A000000000B (one letter, nine digits, one letter)'
                 )
         return value
+    
+
+class SimpleCustomerSerializer(serializers.ModelSerializer):
+    """Simplified customer serializer for dropdowns and related fields"""
+    
+    class Meta:
+        model = Customer
+        fields = [
+            'id', 'qb_customer_id', 'display_name', 'company_name', 'kra_pin',
+            'email', 'phone', 'is_stub', 'taxable'
+        ]
+        read_only_fields = ['id', 'qb_customer_id', 'is_stub']
