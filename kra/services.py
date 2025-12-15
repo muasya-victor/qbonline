@@ -381,8 +381,7 @@ class KRAInvoiceService:
             # Submit to KRA - use the same endpoint as credit notes for consistency
             # 'http://204.12.227.240:8089/trnsSales/saveSales',
             response = requests.post(
-                'http://204.12.227.240:8089/trnsSales/saveSales',
-                # 'http://204.12.245.182:8985/trnsSales/saveSales',
+                'http://204.12.245.182:8985/trnsSales/saveSales',
                 json=payload,
                 headers=headers,
                 timeout=30
@@ -459,8 +458,8 @@ class KRAInvoiceService:
         bhf_id = self.kra_config.bhf_id
         receipt_sign = kra_data.get('rcptSign', '')
         
-        # qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
-        qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        # qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
         return qr_data
 
 
@@ -848,9 +847,9 @@ class KRACreditNoteService:
             }
 
             # Submit to KRA - use the same endpoint as invoices
+            # 'http://204.12.227.240:8089/trnsSales/saveSales',
             response = requests.post(
-                # 'http://204.12.227.240:8089/trnsSales/saveSales',
-                'http://204.12.227.240:8089/trnsSales/saveSales',
+                'http://204.12.245.182:8985/trnsSales/saveSales',
                 json=payload,
                 headers=headers,
                 timeout=30
@@ -926,8 +925,8 @@ class KRACreditNoteService:
         bhf_id = self.kra_config.bhf_id
         receipt_sign = kra_data.get('rcptSign', '')
         
-        # qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
-        qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        # qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
         return qr_data
     
 
@@ -1134,5 +1133,6 @@ class KRAService:
         bhf_id = self.kra_config.bhf_id
         receipt_sign = kra_data.get('rcptSign', '')
         
-        qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        qr_data = f"https://etims.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
+        # qr_data = f"https://etims-sbx.kra.go.ke/common/link/etims/receipt/indexEtimsReceiptData?Data={tin}{bhf_id}{receipt_sign}"
         return qr_data
