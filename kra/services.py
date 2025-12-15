@@ -90,13 +90,13 @@ class KRAInvoiceService:
             return 'D'
         
     def calculate_tax_summary(self, line_items):
-        """Calculate tax summary for categories A-E"""
+        """Calculate tax summary for categories A-E with proper tax calculation"""
         tax_summary = {
             'A': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
             'C': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'D': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
-            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},  # ADDED: Category E with 8% rate but 0 amounts
+            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},
         }
         
         for item in line_items:
@@ -105,26 +105,20 @@ class KRAInvoiceService:
             # Use the actual taxable amount from the line item
             taxable_amount = item.amount
             
-            # Only accumulate amounts for categories A-D (E remains 0)
-            if tax_category in ['A', 'B', 'C', 'D']:
-                tax_summary[tax_category]['taxable_amount'] += taxable_amount
-                
-                # Use the actual tax_amount from the line item if available, otherwise calculate
-                if item.tax_amount and item.tax_amount > 0:
-                    tax_amount = item.tax_amount
-                else:
-                    # Calculate tax amount based on category rate as fallback
-                    if tax_category == 'B':  # 16%
-                        tax_amount = taxable_amount * Decimal('0.16')
-                    else:
-                        tax_amount = Decimal('0.00')
-                
-                tax_summary[tax_category]['tax_amount'] += tax_amount
-            # Category E items are not expected, but if they appear, they would have 0 taxable amount
-            # and 0 tax amount since we don't use category E anymore
+            # Accumulate taxable amounts
+            tax_summary[tax_category]['taxable_amount'] += taxable_amount
+            
+            # Calculate tax amount - FIXED: Only Category B gets 16% tax
+            if tax_category == 'B':  # Standard VAT 16%
+                tax_amount = taxable_amount * Decimal('0.16')
+            else:
+                # Categories A, C, D, E get 0 tax
+                tax_amount = Decimal('0.00')
+            
+            tax_summary[tax_category]['tax_amount'] += tax_amount
         
         return tax_summary
-    
+
     def transform_date_format(self, date_obj, format_type='full'):
         """Transform date to KRA required format"""
         if format_type == 'full':  # yyyyMMddhhmmss
@@ -170,6 +164,29 @@ class KRAInvoiceService:
         # Get customer KRA PIN with robust lookup
         customer_kra_pin = self.get_customer_kra_pin(invoice)
         
+        # PARSE QUICKBOOKS TAX DETAILS
+        # Extract tax amounts from QuickBooks tax lines
+        qb_tax_details = {}
+        if hasattr(invoice, 'txn_tax_detail') and invoice.txn_tax_detail:
+            try:
+                tax_detail = json.loads(invoice.txn_tax_detail) if isinstance(invoice.txn_tax_detail, str) else invoice.txn_tax_detail
+                tax_lines = tax_detail.get('TaxLine', [])
+                
+                for tax_line in tax_lines:
+                    amount = Decimal(str(tax_line.get('Amount', 0)))
+                    detail = tax_line.get('TaxLineDetail', {})
+                    taxable_amount = Decimal(str(detail.get('NetAmountTaxable', 0)))
+                    tax_percent = Decimal(str(detail.get('TaxPercent', 0)))
+                    
+                    # Store by taxable amount and tax percent to match with line items
+                    key = (taxable_amount, tax_percent)
+                    qb_tax_details[key] = amount
+                    
+                    print(f"🔍 QuickBooks Tax Detail: Amount={amount}, Taxable={taxable_amount}, Percent={tax_percent}")
+            except Exception as e:
+                print(f"⚠️ Error parsing QuickBooks tax details: {e}")
+                qb_tax_details = {}
+        
         # Build item list with improved tax handling
         item_list = []
         for idx, line_item in enumerate(invoice.line_items.all(), 1):
@@ -178,15 +195,40 @@ class KRAInvoiceService:
             # Calculate taxable amount correctly
             taxable_amount = line_item.amount
             
-            # Calculate tax amount with fallback
-            if line_item.tax_amount and line_item.tax_amount > 0:
+            # Calculate tax amount - FIXED LOGIC
+            tax_amount = Decimal('0.00')
+            
+            # Method 1: Try to get from QuickBooks tax details
+            if qb_tax_details:
+                # Look for tax line matching this item's amount and tax percent
+                line_tax_percent = line_item.tax_percent or Decimal('0.00')
+                key = (taxable_amount, line_tax_percent)
+                
+                if key in qb_tax_details:
+                    tax_amount = qb_tax_details[key]
+                    print(f"✅ Found QuickBooks tax amount for item {idx}: {tax_amount}")
+                else:
+                    # Try alternative matching strategies
+                    for (taxable_amt, tax_pct), tax_amt in qb_tax_details.items():
+                        # Check if this tax line might correspond to our item
+                        if abs(float(taxable_amt) - float(taxable_amount)) < 0.01:  # Amounts match
+                            tax_amount = tax_amt
+                            print(f"✅ Matched by amount for item {idx}: {tax_amount}")
+                            break
+            
+            # Method 2: Use tax_amount from line_item if available
+            if tax_amount == Decimal('0.00') and line_item.tax_amount and line_item.tax_amount > 0:
                 tax_amount = line_item.tax_amount
-            else:
-                # Fallback calculation based on tax category
+                print(f"✅ Using line item tax amount for item {idx}: {tax_amount}")
+            
+            # Method 3: Fallback calculation based on tax category
+            if tax_amount == Decimal('0.00'):
                 if tax_category == 'B':  # 16%
                     tax_amount = taxable_amount * Decimal('0.16')
+                    print(f"⚠️ Calculating tax for item {idx} (Category B): {tax_amount}")
                 else:
                     tax_amount = Decimal('0.00')
+                    print(f"✅ No tax for item {idx} (Category {tax_category})")
             
             item_data = {
                 "itemSeq": idx,
@@ -228,6 +270,14 @@ class KRAInvoiceService:
             tax_summary['C']['tax_amount'],
             tax_summary['D']['tax_amount'],
         ])
+        
+        # Debug: Show what's being calculated
+        print(f"📊 Tax Summary Debug:")
+        print(f"  Category A: Taxable={tax_summary['A']['taxable_amount']}, Tax={tax_summary['A']['tax_amount']}")
+        print(f"  Category B: Taxable={tax_summary['B']['taxable_amount']}, Tax={tax_summary['B']['tax_amount']}")
+        print(f"  Category C: Taxable={tax_summary['C']['taxable_amount']}, Tax={tax_summary['C']['tax_amount']}")
+        print(f"  Category D: Taxable={tax_summary['D']['taxable_amount']}, Tax={tax_summary['D']['tax_amount']}")
+        print(f"  Total Taxable: {total_taxable_amount}, Total Tax: {total_tax_amount}")
         
         # Build main payload WITH 'E' fields (all set to 0)
         payload = {
@@ -288,7 +338,7 @@ class KRAInvoiceService:
         }
         
         return payload
-
+    
     def submit_to_kra(self, invoice_id):
         """Main method to submit invoice to KRA with improved error handling"""
         try:
