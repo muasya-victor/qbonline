@@ -364,9 +364,7 @@ class KRAInvoiceService:
                 'status': 'submitted'
             }
             
-            # Add document_type field only if it exists in the model
-            if hasattr(KRAInvoiceSubmission, 'document_type'):
-                submission_data['document_type'] = 'invoice'
+
             
             submission = KRAInvoiceSubmission.objects.create(**submission_data)
             
@@ -832,9 +830,6 @@ class KRACreditNoteService:
                 'status': 'submitted'
             }
             
-            # Add document_type field only if it exists in the model
-            if hasattr(KRAInvoiceSubmission, 'document_type'):
-                submission_data['document_type'] = 'credit_note'
             
             submission = KRAInvoiceSubmission.objects.create(**submission_data)
 
@@ -983,7 +978,6 @@ class KRAService:
                 credit_note=credit_note,
                 kra_invoice_number=kra_invoice_number,
                 trd_invoice_no=credit_note.doc_number or f"CN-{credit_note.qb_credit_id}",
-                document_type='credit_note',
                 submitted_data=kra_data,
                 status='submitted'
             )
@@ -1043,7 +1037,6 @@ class KRAService:
             })
         
         return {
-            "document_type": "credit_note",
             "kra_invoice_number": kra_invoice_number,
             "trd_document_no": credit_note.doc_number or f"CN-{credit_note.qb_credit_id}",
             "document_date": credit_note.txn_date.isoformat(),
@@ -1074,29 +1067,42 @@ class KRAService:
         }
     
     def _submit_to_kra_api(self, data: Dict[str, Any], document_type: str) -> Dict[str, Any]:
-        """Submit data to KRA API - mock implementation"""
-        # TODO: Integrate with actual KRA eTIMS API
+        """Submit data to actual KRA API"""
         try:
-            # Mock successful response
-            if document_type == 'credit_note':
-                # Simulate KRA API call for credit note
-                logger.info(f"📤 Submitting {document_type} to KRA: {data['kra_invoice_number']}")
-                
-                # Mock response - replace with actual KRA API integration
-                return {
-                    'success': True,
-                    'receipt_signature': f"KRA-RCPT-{data['kra_invoice_number']}",
-                    'qr_code_data': f"KRA_CREDIT_NOTE|{data['kra_invoice_number']}|{data['trd_document_no']}",
-                    'timestamp': timezone.now().isoformat(),
-                    'kra_reference': f"KRA-REF-{data['kra_invoice_number']}"
-                }
+            headers = {
+                'tin': self.config.tin,
+                'bhfId': self.config.bhf_id,
+                'cmckey': self.config.cmc_key,
+                'Content-Type': 'application/json'
+            }
+            
+            response = requests.post(
+                'http://204.12.245.182:8985/trnsSales/saveSales',
+                json=data,
+                headers=headers,
+                timeout=30
+            )
+            
+            if response.status_code == 200:
+                response_data = response.json()
+                if response_data.get('resultCd') == '000':
+                    data = response_data.get('data', {})
+                    return {
+                        'success': True,
+                        'receipt_signature': data.get('rcptSign', ''),
+                        'qr_code_data': self.generate_qr_code_data(data),
+                        'timestamp': timezone.now().isoformat(),
+                        'kra_reference': f"KRA-REF-{data.get('kra_invoice_number', '')}"
+                    }
+                else:
+                    return {
+                        'success': False,
+                        'error': response_data.get('resultMsg', 'Unknown KRA error')
+                    }
             else:
-                # Similar logic for invoices
                 return {
-                    'success': True,
-                    'receipt_signature': f"KRA-RCPT-{data['kra_invoice_number']}",
-                    'qr_code_data': f"KRA_INVOICE|{data['kra_invoice_number']}|{data['trd_document_no']}",
-                    'timestamp': timezone.now().isoformat()
+                    'success': False,
+                    'error': f"HTTP {response.status_code}: {response.text}"
                 }
                 
         except Exception as e:
@@ -1105,7 +1111,7 @@ class KRAService:
                 'success': False,
                 'error': f"KRA API error: {str(e)}"
             }
-    
+        
     def get_credit_note_submissions(self, credit_note_id: str) -> Dict[str, Any]:
         """Get all KRA submissions for a credit note"""
         try:
