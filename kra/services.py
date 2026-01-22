@@ -931,7 +931,7 @@ class KRAService:
     
     def __init__(self, company_id: str):
         self.company = Company.objects.get(id=company_id)
-        self.config = getattr(self.company, 'kra_config', None)
+        self.kra_config = getattr(self.company, 'kra_config', None)
     
     def _get_next_kra_invoice_number(self) -> int:
         """Get next sequential KRA invoice number - used for both invoices and credit notes"""
