@@ -102,15 +102,30 @@ class KRAInvoiceService:
         for item in line_items:
             tax_category = self.map_tax_category(item.tax_code_ref, item.tax_percent)
             
-            # Use the actual taxable amount from the line item
-            taxable_amount = item.amount
+            # IMPORTANT: Use KES-equivalent amount from lazy calculation
+            # The `amount_kes` property will calculate on-the-fly
+            if hasattr(item, 'amount_kes'):
+                taxable_amount = item.amount_kes  # Use lazy calculated KES amount
+            else:
+                taxable_amount = item.amount  # Fallback to original amount
             
             # Accumulate taxable amounts
             tax_summary[tax_category]['taxable_amount'] += taxable_amount
             
             # Calculate tax amount - FIXED: Only Category B gets 16% tax
             if tax_category == 'B':  # Standard VAT 16%
-                tax_amount = taxable_amount * Decimal('0.16')
+                # Use tax_amount_kes if available from lazy calculation
+                if hasattr(item, 'tax_amount_kes') and item.tax_amount_kes:
+                    tax_amount = item.tax_amount_kes
+                elif item.tax_amount:
+                    # Try to convert original tax amount to KES if needed
+                    if hasattr(item.invoice, 'is_foreign_currency') and item.invoice.is_foreign_currency:
+                        tax_amount = item.tax_amount * item.invoice.effective_exchange_rate
+                    else:
+                        tax_amount = item.tax_amount
+                else:
+                    # Fallback calculation using KES amount
+                    tax_amount = taxable_amount * Decimal('0.16')
             else:
                 # Categories A, C, D, E get 0 tax
                 tax_amount = Decimal('0.00')
@@ -158,6 +173,13 @@ class KRAInvoiceService:
     def build_kra_payload(self, invoice, kra_invoice_number):
         """Build KRA API payload from QuickBooks invoice with all tax categories (A-E)"""
         
+        # LOG currency information for debugging
+        print(f"🌍 Currency Info for Invoice {invoice.doc_number}:")
+        print(f"  Currency: {invoice.effective_currency if hasattr(invoice, 'effective_currency') else 'KES'}")
+        print(f"  Exchange Rate: {invoice.effective_exchange_rate if hasattr(invoice, 'effective_exchange_rate') else 1.0}")
+        print(f"  Total Amt (Original): {invoice.total_amt}")
+        print(f"  Total Amt (KES): {invoice.total_amt_kes if hasattr(invoice, 'total_amt_kes') else invoice.total_amt}")
+        
         # Calculate tax summary with improved logic
         tax_summary = self.calculate_tax_summary(invoice.line_items.all())
         
@@ -192,43 +214,73 @@ class KRAInvoiceService:
         for idx, line_item in enumerate(invoice.line_items.all(), 1):
             tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_percent)
             
-            # Calculate taxable amount correctly
-            taxable_amount = line_item.amount
+            # Calculate taxable amount correctly - USE KES AMOUNT
+            if hasattr(line_item, 'amount_kes'):
+                taxable_amount = line_item.amount_kes
+            else:
+                taxable_amount = line_item.amount
             
             # Calculate tax amount - FIXED LOGIC
             tax_amount = Decimal('0.00')
             
-            # Method 1: Try to get from QuickBooks tax details
+            # Method 1: Try to get from QuickBooks tax details and convert to KES if needed
             if qb_tax_details:
                 # Look for tax line matching this item's amount and tax percent
                 line_tax_percent = line_item.tax_percent or Decimal('0.00')
-                key = (taxable_amount, line_tax_percent)
+                # Use original amount for matching with QB tax details
+                original_amount = line_item.amount
+                key = (original_amount, line_tax_percent)
                 
                 if key in qb_tax_details:
-                    tax_amount = qb_tax_details[key]
-                    print(f"✅ Found QuickBooks tax amount for item {idx}: {tax_amount}")
+                    original_tax_amount = qb_tax_details[key]
+                    # Convert to KES if needed
+                    if hasattr(invoice, 'is_foreign_currency') and invoice.is_foreign_currency:
+                        tax_amount = original_tax_amount * invoice.effective_exchange_rate
+                    else:
+                        tax_amount = original_tax_amount
+                    print(f"✅ Found QuickBooks tax amount for item {idx}: {original_tax_amount} -> {tax_amount} KES")
                 else:
                     # Try alternative matching strategies
                     for (taxable_amt, tax_pct), tax_amt in qb_tax_details.items():
                         # Check if this tax line might correspond to our item
-                        if abs(float(taxable_amt) - float(taxable_amount)) < 0.01:  # Amounts match
-                            tax_amount = tax_amt
-                            print(f"✅ Matched by amount for item {idx}: {tax_amount}")
+                        if abs(float(taxable_amt) - float(original_amount)) < 0.01:  # Amounts match
+                            original_tax_amount = tax_amt
+                            # Convert to KES if needed
+                            if hasattr(invoice, 'is_foreign_currency') and invoice.is_foreign_currency:
+                                tax_amount = original_tax_amount * invoice.effective_exchange_rate
+                            else:
+                                tax_amount = original_tax_amount
+                            print(f"✅ Matched by amount for item {idx}: {original_tax_amount} -> {tax_amount} KES")
                             break
             
-            # Method 2: Use tax_amount from line_item if available
-            if tax_amount == Decimal('0.00') and line_item.tax_amount and line_item.tax_amount > 0:
-                tax_amount = line_item.tax_amount
-                print(f"✅ Using line item tax amount for item {idx}: {tax_amount}")
+            # Method 2: Use tax_amount_kes from line_item if available (lazy calculation)
+            if tax_amount == Decimal('0.00') and hasattr(line_item, 'tax_amount_kes') and line_item.tax_amount_kes and line_item.tax_amount_kes > 0:
+                tax_amount = line_item.tax_amount_kes
+                print(f"✅ Using line item KES tax amount for item {idx}: {tax_amount}")
             
-            # Method 3: Fallback calculation based on tax category
+            # Method 3: Use tax_amount from line_item and convert to KES if needed
+            elif tax_amount == Decimal('0.00') and line_item.tax_amount and line_item.tax_amount > 0:
+                original_tax_amount = line_item.tax_amount
+                # Convert to KES if needed
+                if hasattr(invoice, 'is_foreign_currency') and invoice.is_foreign_currency:
+                    tax_amount = original_tax_amount * invoice.effective_exchange_rate
+                else:
+                    tax_amount = original_tax_amount
+                print(f"✅ Using and converting line item tax amount for item {idx}: {original_tax_amount} -> {tax_amount} KES")
+            
+            # Method 4: Fallback calculation based on tax category using KES amounts
             if tax_amount == Decimal('0.00'):
                 if tax_category == 'B':  # 16%
                     tax_amount = taxable_amount * Decimal('0.16')
-                    print(f"⚠️ Calculating tax for item {idx} (Category B): {tax_amount}")
+                    print(f"⚠️ Calculating tax for item {idx} (Category B): {tax_amount} KES")
                 else:
                     tax_amount = Decimal('0.00')
                     print(f"✅ No tax for item {idx} (Category {tax_category})")
+            
+            # For unit price, use KES equivalent if available
+            unit_price_for_kra = line_item.unit_price
+            if hasattr(line_item, 'unit_price_kes'):
+                unit_price_for_kra = line_item.unit_price_kes
             
             item_data = {
                 "itemSeq": idx,
@@ -240,8 +292,8 @@ class KRAInvoiceService:
                 "pkg": 1,
                 "qtyUnitCd": "NO",  # Number
                 "qty": float(line_item.qty),
-                "prc": float(line_item.unit_price),
-                "splyAmt": float(line_item.amount),
+                "prc": float(unit_price_for_kra),  # Unit price in KES
+                "splyAmt": float(taxable_amount),  # Amount in KES
                 "dcRt": 0.0,
                 "dcAmt": 0.0,
                 "isrccCd": None,
@@ -249,9 +301,9 @@ class KRAInvoiceService:
                 "isrcRt": None,
                 "isrcAmt": None,
                 "taxTyCd": tax_category,
-                "taxblAmt": float(taxable_amount),
-                "taxAmt": float(tax_amount),  # Use calculated tax amount
-                "totAmt": float(line_item.amount)
+                "taxblAmt": float(taxable_amount),  # Taxable amount in KES
+                "taxAmt": float(tax_amount),  # Tax amount in KES
+                "totAmt": float(taxable_amount)  # Total amount in KES
             }
             item_list.append(item_data)
         
@@ -271,13 +323,23 @@ class KRAInvoiceService:
             tax_summary['D']['tax_amount'],
         ])
         
+        # Get total amount in KES for KRA
+        if hasattr(invoice, 'total_amt_kes'):
+            total_amt_for_kra = invoice.total_amt_kes
+        else:
+            total_amt_for_kra = invoice.total_amt
+        
         # Debug: Show what's being calculated
-        print(f"📊 Tax Summary Debug:")
-        print(f"  Category A: Taxable={tax_summary['A']['taxable_amount']}, Tax={tax_summary['A']['tax_amount']}")
-        print(f"  Category B: Taxable={tax_summary['B']['taxable_amount']}, Tax={tax_summary['B']['tax_amount']}")
-        print(f"  Category C: Taxable={tax_summary['C']['taxable_amount']}, Tax={tax_summary['C']['tax_amount']}")
-        print(f"  Category D: Taxable={tax_summary['D']['taxable_amount']}, Tax={tax_summary['D']['tax_amount']}")
-        print(f"  Total Taxable: {total_taxable_amount}, Total Tax: {total_tax_amount}")
+        print(f"📊 KRA Tax Summary for Invoice {invoice.doc_number}:")
+        print(f"  Currency: {invoice.effective_currency if hasattr(invoice, 'effective_currency') else 'KES'}")
+        print(f"  Exchange Rate: {invoice.effective_exchange_rate if hasattr(invoice, 'effective_exchange_rate') else 1.0}")
+        print(f"  Category A: Taxable={tax_summary['A']['taxable_amount']} KES, Tax={tax_summary['A']['tax_amount']} KES")
+        print(f"  Category B: Taxable={tax_summary['B']['taxable_amount']} KES, Tax={tax_summary['B']['tax_amount']} KES")
+        print(f"  Category C: Taxable={tax_summary['C']['taxable_amount']} KES, Tax={tax_summary['C']['tax_amount']} KES")
+        print(f"  Category D: Taxable={tax_summary['D']['taxable_amount']} KES, Tax={tax_summary['D']['tax_amount']} KES")
+        print(f"  Total Taxable: {total_taxable_amount} KES, Total Tax: {total_tax_amount} KES")
+        print(f"  Invoice Total (Original): {invoice.total_amt}")
+        print(f"  Invoice Total (KES): {total_amt_for_kra} KES")
         
         # Build main payload WITH 'E' fields (all set to 0)
         payload = {
@@ -317,9 +379,9 @@ class KRAInvoiceService:
             "taxAmtE": 0.0,  # ADDED: Always 0
             "totTaxblAmt": float(total_taxable_amount),
             "totTaxAmt": float(total_tax_amount),
-            "totAmt": float(invoice.total_amt),
+            "totAmt": float(total_amt_for_kra),  # Use KES amount for total
             "prchrAcptcYn": "Y",
-            "remark": invoice.private_note or f"Invoice {invoice.doc_number}",
+            "remark": invoice.private_note or f"Invoice {invoice.doc_number} (Currency: {invoice.effective_currency if hasattr(invoice, 'effective_currency') else 'KES'})",
             "regrId": "Admin",
             "regrNm": "Admin",
             "modrId": "Admin",
@@ -338,7 +400,7 @@ class KRAInvoiceService:
         }
         
         return payload
-    
+
     def submit_to_kra(self, invoice_id):
         """Main method to submit invoice to KRA with improved error handling"""
         try:
@@ -347,6 +409,26 @@ class KRAInvoiceService:
                 id=invoice_id, 
                 company=self.company
             )
+
+            # Log currency information
+            print(f"🌍 Submitting invoice to KRA - Currency Details:")
+            print(f"  Invoice: {invoice.doc_number}")
+            
+            # Check if invoice has the new lazy calculation properties
+            if hasattr(invoice, 'effective_currency'):
+                currency = invoice.effective_currency
+                exchange_rate = invoice.effective_exchange_rate
+                total_amt_kes = invoice.total_amt_kes
+            else:
+                currency = 'KES'
+                exchange_rate = Decimal('1.0')
+                total_amt_kes = invoice.total_amt
+            
+            print(f"  Currency: {currency}")
+            print(f"  Exchange Rate: {exchange_rate}")
+            print(f"  Total Amount (Original): {invoice.total_amt}")
+            print(f"  Total Amount (KES): {total_amt_kes}")
+        
             
             # Get next sequential invoice number
             kra_invoice_number = self.get_next_invoice_number()
