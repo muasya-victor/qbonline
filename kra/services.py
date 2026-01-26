@@ -291,9 +291,9 @@ class KRAInvoiceService:
                 "pkgUnitCd": "NT",  # No package
                 "pkg": 1,
                 "qtyUnitCd": "NO",  # Number
-                "qty": float(line_item.qty),
-                "prc": float(unit_price_for_kra),  # Unit price in KES
-                "splyAmt": float(taxable_amount),  # Amount in KES
+                "qty": round(float(line_item.qty), 2),
+                "prc": round(float(unit_price_for_kra), 2),  # Unit price in KES
+                "splyAmt": round(float(taxable_amount), 2),  # Amount in KES
                 "dcRt": 0.0,
                 "dcAmt": 0.0,
                 "isrccCd": None,
@@ -301,9 +301,9 @@ class KRAInvoiceService:
                 "isrcRt": None,
                 "isrcAmt": None,
                 "taxTyCd": tax_category,
-                "taxblAmt": float(taxable_amount),  # Taxable amount in KES
-                "taxAmt": float(tax_amount),  # Tax amount in KES
-                "totAmt": float(taxable_amount)  # Total amount in KES
+                "taxblAmt": round(float(taxable_amount), 2), # Taxable amount in KES
+                "taxAmt": round(float(tax_amount), 2),  # Tax amount in KES
+                "totAmt": round(float(taxable_amount), 2)  # Total amount in KES
             }
             item_list.append(item_data)
         
@@ -362,24 +362,24 @@ class KRAInvoiceService:
             "rfdDt": None,
             "rfdRsnCd": None,
             "totItemCnt": len(item_list),
-            "taxblAmtA": float(tax_summary['A']['taxable_amount']),
-            "taxblAmtB": float(tax_summary['B']['taxable_amount']),
-            "taxblAmtC": float(tax_summary['C']['taxable_amount']),
-            "taxblAmtD": float(tax_summary['D']['taxable_amount']),
-            "taxblAmtE": 0.0,  # ADDED: Always 0
-            "taxRtA": float(tax_summary['A']['rate']),
-            "taxRtB": float(tax_summary['B']['rate']),
-            "taxRtC": float(tax_summary['C']['rate']),
-            "taxRtD": float(tax_summary['D']['rate']),
-            "taxRtE": 8.0,  # ADDED: Rate is 8% but amount is 0
-            "taxAmtA": float(tax_summary['A']['tax_amount']),
-            "taxAmtB": float(tax_summary['B']['tax_amount']),
-            "taxAmtC": float(tax_summary['C']['tax_amount']),
-            "taxAmtD": float(tax_summary['D']['tax_amount']),
-            "taxAmtE": 0.0,  # ADDED: Always 0
-            "totTaxblAmt": float(total_taxable_amount),
-            "totTaxAmt": float(total_tax_amount),
-            "totAmt": float(total_amt_for_kra),  # Use KES amount for total
+            "taxblAmtA": round(float(tax_summary['A']['taxable_amount']), 2),
+            "taxblAmtB": round(float(tax_summary['B']['taxable_amount']), 2),
+            "taxblAmtC": round(float(tax_summary['C']['taxable_amount']), 2),
+            "taxblAmtD": round(float(tax_summary['D']['taxable_amount']), 2),
+            "taxblAmtE": 0.00,  # Changed from 0.0 to 0.00
+            "taxRtA": round(float(tax_summary['A']['rate']), 2),
+            "taxRtB": round(float(tax_summary['B']['rate']), 2),
+            "taxRtC": round(float(tax_summary['C']['rate']), 2),
+            "taxRtD": round(float(tax_summary['D']['rate']), 2),
+            "taxRtE": 8.00,  # Changed from 8.0 to 8.00
+            "taxAmtA": round(float(tax_summary['A']['tax_amount']), 2),
+            "taxAmtB": round(float(tax_summary['B']['tax_amount']), 2),
+            "taxAmtC": round(float(tax_summary['C']['tax_amount']), 2),
+            "taxAmtD": round(float(tax_summary['D']['tax_amount']), 2),
+            "taxAmtE": 0.00,  # Changed from 0.0 to 0.00
+            "totTaxblAmt": round(float(total_taxable_amount), 2),
+            "totTaxAmt": round(float(total_tax_amount), 2),
+            "totAmt": round(float(total_amt_for_kra), 2),   # Use KES amount for total
             "prchrAcptcYn": "Y",
             "remark": invoice.private_note or f"Invoice {invoice.doc_number} (Currency: {invoice.effective_currency if hasattr(invoice, 'effective_currency') else 'KES'})",
             "regrId": "Admin",

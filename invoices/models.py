@@ -121,7 +121,7 @@ class Invoice(TimeStampModel):
                 except:
                     pass
         
-        return Decimal('1.0')  # Default to 1.0
+        return Decimal('1.0')  # Default to 1.00
     
     @property
     def is_foreign_currency(self):
