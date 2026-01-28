@@ -736,28 +736,28 @@
                         <div class="total-row">
                             <span class="total-label">SUBTOTAL:</span>
                             <span class="total-amount">
-                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.subtotal|default:invoice.total_amt|floatformat:2 }}
+                                <span class="currency-symbol">{{ invoice.effective_currency}}</span>{{ invoice.subtotal|default:invoice.total_amt|floatformat:2 }}
                             </span>
                         </div>
                         
                         <div class="total-row">
                             <span class="total-label">TOTAL TAX:</span>
                             <span class="total-amount">
-                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.tax_total|default:0|floatformat:2 }}
+                                <span class="currency-symbol">{{ invoice.effective_currency}}</span>{{ invoice.tax_total|default:0|floatformat:2 }}
                             </span>
                         </div>
 
                         <div class="total-row total-main">
                             <span class="total-label">Total:</span>
                             <span class="total-amount">
-                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.total_amt|floatformat:2 }}
+                                <span class="currency-symbol">{{ invoice.effective_currency}}</span>{{ invoice.total_amt|floatformat:2 }}
                             </span>
                         </div>
 
                         <div class="total-due">
                             <span class="total-label">Total Due:</span>
                             <span class="total-amount">
-                                <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.total_amt|floatformat:2 }}
+                                <span class="currency-symbol">{{ invoice.effective_currency}}</span>{{ invoice.total_amt|floatformat:2 }}
                             </span>
                         </div>
                     </div>
@@ -779,10 +779,10 @@
                                 <tr>
                                     <td>{{ invoice.tax_percent|default:0|floatformat:2 }}%</td>
                                     <td>
-                                        <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.tax_total|default:0|floatformat:2 }}
+                                        <span class="currency-symbol">{{ invoice.effective_currency}}</span>{{ invoice.tax_total|default:0|floatformat:2 }}
                                     </td>
                                     <td>
-                                        <span class="currency-symbol">{{ company.currency_code|default:"USD" }}</span>{{ invoice.subtotal|default:0|floatformat:2 }}
+                                        <span class="currency-symbol">{{ invoice.effective_currency}}</span>{{ invoice.subtotal|default:0|floatformat:2 }}
                                     </td>
                                 </tr>
                             </tbody>
@@ -878,7 +878,7 @@
     <!-- Currency formatting script -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const currencyCode = '{{ company.currency_code|default:"USD" }}';
+            const currencyCode = '{{ invoice.currency_ref_value|default:"KES"}}';
             const currencyElements = document.querySelectorAll('.currency-symbol');
             
             currencyElements.forEach(element => {
