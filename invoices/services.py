@@ -897,7 +897,7 @@ class QuickBooksCreditNoteService:
         try:
             # Resolve customer using three-level strategy
             customer = self._resolve_customer_for_credit_note(credit_data)
-            
+        
             # Find related invoice if any
             related_invoice = None
             linked_txn = credit_data.get("LinkedTxn", [])
@@ -912,7 +912,14 @@ class QuickBooksCreditNoteService:
             # Extract comprehensive tax information
             subtotal, tax_total, tax_rate_ref, tax_percent = self.extract_credit_note_tax_information(credit_data)
             
+            # EXTRACT CURRENCY INFORMATION (NEW)
+            currency_ref = credit_data.get('CurrencyRef', {})
+            currency_ref_value = currency_ref.get('value', 'KES')  # Default to KES
+            currency_name = currency_ref.get('name', 'Kenyan Shilling')  # Default name
+            exchange_rate = Decimal(str(credit_data.get('ExchangeRate', 1.0)))  # Default to 1.0
+            
             credit_note_defaults = {
+                'customer': customer,  
                 'doc_number': credit_data.get('DocNumber'),
                 'txn_date': datetime.strptime(credit_data['TxnDate'], '%Y-%m-%d').date(),
                 'total_amt': Decimal(str(credit_data.get('TotalAmt', 0))),
@@ -921,6 +928,12 @@ class QuickBooksCreditNoteService:
                 'tax_total': tax_total,
                 'tax_rate_ref': tax_rate_ref,
                 'tax_percent': tax_percent,
+                
+                # CURRENCY INFORMATION (NEW)
+                'currency_ref_value': currency_ref_value,
+                'currency_name': currency_name,
+                'exchange_rate': exchange_rate,
+                
                 'customer_ref_value': credit_data.get('CustomerRef', {}).get('value'),
                 'customer_name': credit_data.get('CustomerRef', {}).get('name'),
                 'private_note': credit_data.get('PrivateNote'),

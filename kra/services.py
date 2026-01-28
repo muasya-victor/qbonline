@@ -625,38 +625,46 @@ class KRACreditNoteService:
             return 'D'
         
     def calculate_tax_summary(self, line_items):
-        """Calculate tax summary for categories A-E"""
+        """Calculate tax summary for categories A-E with proper KES conversion"""
         tax_summary = {
             'A': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'B': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('16.00')},
             'C': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
             'D': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('0.00')},
-            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},  # ADDED: Category E with 8% rate but 0 amounts
+            'E': {'taxable_amount': Decimal('0.00'), 'tax_amount': Decimal('0.00'), 'rate': Decimal('8.00')},
         }
         
         for item in line_items:
             tax_category = self.map_tax_category(item.tax_code_ref, item.tax_percent)
             
-            # Use the actual taxable amount from the line item
-            taxable_amount = item.amount
+            # CRITICAL CHANGE: Use the lazy calculation property amount_kes
+            taxable_amount = item.amount_kes  # This uses the lazy property
             
-            # Only accumulate amounts for categories A-D (E remains 0)
-            if tax_category in ['A', 'B', 'C', 'D']:
-                tax_summary[tax_category]['taxable_amount'] += taxable_amount
-                
-                # Use the actual tax_amount from the line item if available, otherwise calculate
-                if item.tax_amount and item.tax_amount > 0:
-                    tax_amount = item.tax_amount
-                else:
-                    # Calculate tax amount based on category rate as fallback
-                    if tax_category == 'B':  # 16%
-                        tax_amount = taxable_amount * Decimal('0.16')
+            # Accumulate taxable amounts
+            tax_summary[tax_category]['taxable_amount'] += taxable_amount
+            
+            # Calculate tax amount - FIXED: Only Category B gets 16% tax
+            if tax_category == 'B':  # Standard VAT 16%
+                # Use the lazy calculation property tax_amount_kes
+                if item.tax_amount_kes:
+                    tax_amount = item.tax_amount_kes
+                elif item.tax_amount:
+                    # Fallback: Use original tax amount and convert if needed
+                    if hasattr(item.credit_note, 'is_foreign_currency') and item.credit_note.is_foreign_currency:
+                        tax_amount = item.tax_amount * item.credit_note.effective_exchange_rate
                     else:
-                        tax_amount = Decimal('0.00')
-                
-                tax_summary[tax_category]['tax_amount'] += tax_amount
-            # Category E items are not expected, but if they appear, they would have 0 taxable amount
-            # and 0 tax amount since we don't use category E anymore
+                        tax_amount = item.tax_amount
+                else:
+                    # Fallback calculation using KES amount
+                    tax_amount = taxable_amount * Decimal('0.16')
+            else:
+                # Categories A, C, D, E get 0 tax
+                tax_amount = Decimal('0.00')
+            
+            tax_summary[tax_category]['tax_amount'] += tax_amount
+            
+            # Debug logging (optional)
+            print(f"  Item {item.item_name}: Category {tax_category}, Amount KES: {taxable_amount}, Tax KES: {tax_amount}")
         
         return tax_summary
     
@@ -736,8 +744,8 @@ class KRACreditNoteService:
     
     def build_kra_payload(self, credit_note, kra_number):
         """Build KRA API payload from QuickBooks credit note with all tax categories (A-E)"""
-        
-        # Calculate tax summary with improved logic
+
+        # Calculate tax summary with KES amounts
         tax_summary = self.calculate_tax_summary(credit_note.line_items.all())
         
         # Get customer KRA PIN with robust lookup
@@ -746,23 +754,26 @@ class KRACreditNoteService:
         # Get original invoice KRA number for orgInvcNo
         original_invoice_kra_number = self.get_original_invoice_kra_number(credit_note)
         
-        # Build item list with improved tax handling
+        # Build item list with KES amounts
         item_list = []
         for idx, line_item in enumerate(credit_note.line_items.all(), 1):
             tax_category = self.map_tax_category(line_item.tax_code_ref, line_item.tax_percent)
             
-            # Calculate taxable amount correctly
-            taxable_amount = line_item.amount
+            # USE LAZY CALCULATION PROPERTIES
+            taxable_amount = line_item.amount_kes  # This is already in KES
             
-            # Calculate tax amount with fallback
-            if line_item.tax_amount and line_item.tax_amount > 0:
-                tax_amount = line_item.tax_amount
-            else:
-                # Fallback calculation based on tax category
-                if tax_category == 'B':  # 16%
-                    tax_amount = taxable_amount * Decimal('0.16')
+            # Calculate tax amount - use the lazy property
+            if tax_category == 'B':  # Standard VAT 16%
+                if line_item.tax_amount_kes:
+                    tax_amount = line_item.tax_amount_kes
                 else:
-                    tax_amount = Decimal('0.00')
+                    # Fallback calculation
+                    tax_amount = taxable_amount * Decimal('0.16')
+            else:
+                tax_amount = Decimal('0.00')
+            
+            # USE LAZY PROPERTY FOR UNIT PRICE TOO
+            unit_price_for_kra = line_item.unit_price_kes
             
             item_data = {
                 "itemSeq": idx,
@@ -773,9 +784,9 @@ class KRACreditNoteService:
                 "pkgUnitCd": "NT",  # No package
                 "pkg": 1,
                 "qtyUnitCd": "NO",  # Number
-                "qty": float(line_item.qty),
-                "prc": float(line_item.unit_price),
-                "splyAmt": float(line_item.amount),
+                "qty": round(float(line_item.qty), 2),
+                "prc": round(float(unit_price_for_kra), 2),  # KES unit price
+                "splyAmt": round(float(taxable_amount), 2),  # KES amount
                 "dcRt": 0.0,
                 "dcAmt": 0.0,
                 "isrccCd": None,
@@ -783,13 +794,13 @@ class KRACreditNoteService:
                 "isrcRt": None,
                 "isrcAmt": None,
                 "taxTyCd": tax_category,
-                "taxblAmt": float(taxable_amount),
-                "taxAmt": float(tax_amount),  # Use calculated tax amount
-                "totAmt": float(line_item.amount)
+                "taxblAmt": round(float(taxable_amount), 2),  # KES taxable amount
+                "taxAmt": round(float(tax_amount), 2),  # KES tax amount
+                "totAmt": round(float(taxable_amount), 2)  # KES total amount
             }
             item_list.append(item_data)
         
-        # Calculate total taxable amount from summary (including only A-D since E is always 0)
+        # Calculate total taxable amount from summary
         total_taxable_amount = sum([
             tax_summary['A']['taxable_amount'],
             tax_summary['B']['taxable_amount'], 
@@ -797,7 +808,7 @@ class KRACreditNoteService:
             tax_summary['D']['taxable_amount'],
         ])
         
-        # Calculate total tax amount from summary (including only A-D since E is always 0)
+        # Calculate total tax amount from summary
         total_tax_amount = sum([
             tax_summary['A']['tax_amount'],
             tax_summary['B']['tax_amount'],
@@ -805,19 +816,34 @@ class KRACreditNoteService:
             tax_summary['D']['tax_amount'],
         ])
         
-        # Build main payload WITH 'E' fields (all set to 0)
+        # USE LAZY PROPERTY FOR TOTAL AMOUNT
+        total_amt_for_kra = credit_note.total_amt_kes
+        
+        # ADD DEBUG LOGGING (similar to invoice service)
+        print(f"📊 KRA Tax Summary for Credit Note {credit_note.doc_number}:")
+        print(f"  Currency: {credit_note.effective_currency}")
+        print(f"  Exchange Rate: {credit_note.effective_exchange_rate}")
+        print(f"  Category A: Taxable={tax_summary['A']['taxable_amount']} KES, Tax={tax_summary['A']['tax_amount']} KES")
+        print(f"  Category B: Taxable={tax_summary['B']['taxable_amount']} KES, Tax={tax_summary['B']['tax_amount']} KES")
+        print(f"  Category C: Taxable={tax_summary['C']['taxable_amount']} KES, Tax={tax_summary['C']['tax_amount']} KES")
+        print(f"  Category D: Taxable={tax_summary['D']['taxable_amount']} KES, Tax={tax_summary['D']['tax_amount']} KES")
+        print(f"  Total Taxable: {total_taxable_amount} KES, Total Tax: {total_tax_amount} KES")
+        print(f"  Credit Note Total (Original): {credit_note.total_amt}")
+        print(f"  Credit Note Total (KES): {total_amt_for_kra} KES")
+        
+        # Build main payload WITH KES AMOUNTS
         payload = {
             "tin": self.kra_config.tin,
             "bhfId": self.kra_config.bhf_id,
             "trdInvcNo": credit_note.doc_number or f"CN-{kra_number}",
             "invcNo": kra_number,
-            "orgInvcNo": original_invoice_kra_number,  # Use original invoice's KRA number
+            "orgInvcNo": original_invoice_kra_number,
             "custTin": customer_kra_pin,
             "custNm": credit_note.customer_name or "",
-            "salesTyCd": "N",  # Normal sale
-            "rcptTyCd": "R",  # Return/credit note (different from invoice's 'S')
-            "pmtTyCd": "01",  # Cash payment type
-            "salesSttsCd": "02",  # Approved
+            "salesTyCd": "N",
+            "rcptTyCd": "R",  # Credit note specific
+            "pmtTyCd": "01",
+            "salesSttsCd": "02",
             "cfmDt": self.transform_date_format(timezone.now()),
             "salesDt": self.transform_date_format(credit_note.txn_date, 'date_only'),
             "stockRlsDt": self.transform_date_format(timezone.now()),
@@ -826,24 +852,24 @@ class KRACreditNoteService:
             "rfdDt": None,
             "rfdRsnCd": None,
             "totItemCnt": len(item_list),
-            "taxblAmtA": float(tax_summary['A']['taxable_amount']),
-            "taxblAmtB": float(tax_summary['B']['taxable_amount']),
-            "taxblAmtC": float(tax_summary['C']['taxable_amount']),
-            "taxblAmtD": float(tax_summary['D']['taxable_amount']),
-            "taxblAmtE": 0.0,  # ADDED: Always 0
-            "taxRtA": float(tax_summary['A']['rate']),
-            "taxRtB": float(tax_summary['B']['rate']),
-            "taxRtC": float(tax_summary['C']['rate']),
-            "taxRtD": float(tax_summary['D']['rate']),
-            "taxRtE": 8.0,  # ADDED: Rate is 8% but amount is 0
-            "taxAmtA": float(tax_summary['A']['tax_amount']),
-            "taxAmtB": float(tax_summary['B']['tax_amount']),
-            "taxAmtC": float(tax_summary['C']['tax_amount']),
-            "taxAmtD": float(tax_summary['D']['tax_amount']),
-            "taxAmtE": 0.0,  # ADDED: Always 0
-            "totTaxblAmt": float(total_taxable_amount),
-            "totTaxAmt": float(total_tax_amount),
-            "totAmt": float(credit_note.total_amt),
+            "taxblAmtA": round(float(tax_summary['A']['taxable_amount']), 2),
+            "taxblAmtB": round(float(tax_summary['B']['taxable_amount']), 2),
+            "taxblAmtC": round(float(tax_summary['C']['taxable_amount']), 2),
+            "taxblAmtD": round(float(tax_summary['D']['taxable_amount']), 2),
+            "taxblAmtE": 0.00,
+            "taxRtA": round(float(tax_summary['A']['rate']), 2),
+            "taxRtB": round(float(tax_summary['B']['rate']), 2),
+            "taxRtC": round(float(tax_summary['C']['rate']), 2),
+            "taxRtD": round(float(tax_summary['D']['rate']), 2),
+            "taxRtE": 8.00,
+            "taxAmtA": round(float(tax_summary['A']['tax_amount']), 2),
+            "taxAmtB": round(float(tax_summary['B']['tax_amount']), 2),
+            "taxAmtC": round(float(tax_summary['C']['tax_amount']), 2),
+            "taxAmtD": round(float(tax_summary['D']['tax_amount']), 2),
+            "taxAmtE": 0.00,
+            "totTaxblAmt": round(float(total_taxable_amount), 2),
+            "totTaxAmt": round(float(total_tax_amount), 2),
+            "totAmt": round(float(total_amt_for_kra), 2),  # KES total amount
             "prchrAcptcYn": "Y",
             "remark": credit_note.private_note or f"Credit Note for invoice {original_invoice_kra_number}",
             "regrId": "Admin",

@@ -55,17 +55,55 @@ class RelatedInvoiceSerializer(serializers.ModelSerializer):
         return obj.customer_name or "Unknown Customer"
 
 class CreditNoteLineSerializer(serializers.ModelSerializer):
-    """Serializer for credit note line items with tax information"""
+    """Serializer for credit note line items with tax information and KES equivalents"""
+    
+    amount_kes = serializers.SerializerMethodField()
+    tax_amount_kes = serializers.SerializerMethodField()
+    unit_price_kes = serializers.SerializerMethodField()
     
     class Meta:
         model = CreditNoteLine
         fields = [
             "id", "credit_note", "line_num", "item_ref_value", "item_name", "description",
-            "qty", "unit_price", "amount",
-            "tax_code_ref", "tax_rate_ref", "tax_percent", "tax_amount",
+            "qty", "unit_price", "amount", "amount_kes", "unit_price_kes",
+            "tax_code_ref", "tax_rate_ref", "tax_percent", "tax_amount", "tax_amount_kes",
             "raw_data", "created_at", "updated_at"
         ]
         read_only_fields = ["id", "created_at", "updated_at"]
+    
+    def get_amount_kes(self, obj):
+        """Get line amount in KES"""
+        if hasattr(obj, 'amount_kes'):
+            return float(obj.amount_kes)
+        else:
+            # Fallback calculation
+            credit_note = obj.credit_note
+            if hasattr(credit_note, 'is_foreign_currency') and credit_note.is_foreign_currency:
+                return float(obj.amount * credit_note.effective_exchange_rate)
+            return float(obj.amount)
+    
+    def get_tax_amount_kes(self, obj):
+        """Get tax amount in KES"""
+        if hasattr(obj, 'tax_amount_kes'):
+            return float(obj.tax_amount_kes)
+        else:
+            # Fallback calculation
+            credit_note = obj.credit_note
+            if hasattr(credit_note, 'is_foreign_currency') and credit_note.is_foreign_currency:
+                tax_amount = obj.tax_amount or Decimal('0.00')
+                return float(tax_amount * credit_note.effective_exchange_rate)
+            return float(obj.tax_amount or 0)
+    
+    def get_unit_price_kes(self, obj):
+        """Get unit price in KES"""
+        if hasattr(obj, 'unit_price_kes'):
+            return float(obj.unit_price_kes)
+        else:
+            # Fallback calculation
+            credit_note = obj.credit_note
+            if hasattr(credit_note, 'is_foreign_currency') and credit_note.is_foreign_currency:
+                return float(obj.unit_price * credit_note.effective_exchange_rate)
+            return float(obj.unit_price)
 
 class CompanyInfoSerializer(serializers.ModelSerializer):
     """Serializer for company information"""
@@ -79,7 +117,7 @@ class CompanyInfoSerializer(serializers.ModelSerializer):
         ]
 
 class CreditNoteSerializer(serializers.ModelSerializer):
-    """Serializer for credit notes with comprehensive related data"""
+    """Serializer for credit notes with comprehensive related data and currency support"""
     
     line_items = CreditNoteLineSerializer(many=True, read_only=True)
     related_invoice = RelatedInvoiceSerializer(read_only=True)
@@ -88,8 +126,21 @@ class CreditNoteSerializer(serializers.ModelSerializer):
     kra_submissions = KRASubmissionSerializer(many=True, read_only=True)
     kra_submission = serializers.SerializerMethodField()
     
+    # CURRENCY FIELDS - credit note specific (not company)
+    currency_code = serializers.SerializerMethodField()
+    currency_name = serializers.SerializerMethodField()
+    exchange_rate = serializers.SerializerMethodField()
+    is_foreign_currency = serializers.SerializerMethodField()
+    
+    # KES EQUIVALENTS
+    total_amt_kes = serializers.SerializerMethodField()
+    balance_kes = serializers.SerializerMethodField()
+    subtotal_kes = serializers.SerializerMethodField()
+    tax_total_kes = serializers.SerializerMethodField()
+    
+    # Status and validation
     status = serializers.SerializerMethodField()
-    currency_code = serializers.CharField(source='company.currency_code', read_only=True)
+    status_kes = serializers.SerializerMethodField()
     company_name = serializers.CharField(source='company.name', read_only=True)
     is_kra_validated = serializers.SerializerMethodField()
 
@@ -102,9 +153,17 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             # Dates
             "txn_date", "created_at", "updated_at",
             
-            # Amounts and financial data
+            # ORIGINAL CURRENCY AMOUNTS
             "total_amt", "balance", "subtotal", "tax_total", 
-            "tax_rate_ref", "tax_percent", "currency_code",
+            
+            # CURRENCY INFORMATION
+            "currency_code", "currency_name", "exchange_rate", "is_foreign_currency",
+            
+            # KES EQUIVALENTS
+            "total_amt_kes", "balance_kes", "subtotal_kes", "tax_total_kes",
+            
+            # Tax information
+            "tax_rate_ref", "tax_percent",
             
             # Customer information
             "customer_ref_value", "customer_name",
@@ -122,7 +181,7 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             "kra_submissions", "kra_submission", "is_kra_validated",
             
             # Status fields
-            "status",
+            "status", "status_kes",
             
             # Raw data
             "raw_data"
@@ -131,12 +190,114 @@ class CreditNoteSerializer(serializers.ModelSerializer):
             "qb_credit_id", "sync_token", "raw_data", "created_at",
             "updated_at", "is_kra_validated"
         ]
+    
+    # CURRENCY METHODS
+    def get_currency_code(self, obj):
+        """Get the original currency code (USD, KES, EUR, etc.)"""
+        if hasattr(obj, 'effective_currency'):
+            return obj.effective_currency  # From lazy calculation property
+        elif hasattr(obj, 'currency_ref_value') and obj.currency_ref_value:
+            return obj.currency_ref_value  # From database field
+        else:
+            return 'KES'  # Default
+
+    def get_currency_name(self, obj):
+        """Get the currency name (United States Dollar, Kenyan Shilling, etc.)"""
+        if hasattr(obj, 'currency_name') and obj.currency_name:
+            return obj.currency_name  # From database field
+        elif hasattr(obj, 'effective_currency'):
+            # Map common currency codes to names
+            currency_map = {
+                'KES': 'Kenyan Shilling',
+                'USD': 'United States Dollar',
+                'EUR': 'Euro',
+                'GBP': 'British Pound',
+                # Add more as needed
+            }
+            return currency_map.get(obj.effective_currency, obj.effective_currency)
+        else:
+            return 'Kenyan Shilling'  # Default
+
+    def get_exchange_rate(self, obj):
+        """Get exchange rate used for this credit note"""
+        if hasattr(obj, 'effective_exchange_rate'):
+            return float(obj.effective_exchange_rate)
+        elif hasattr(obj, 'exchange_rate'):
+            return float(obj.exchange_rate)
+        else:
+            return 1.0  # Default for KES or missing rate
+
+    def get_is_foreign_currency(self, obj):
+        """Check if credit note is in foreign currency (not KES)"""
+        if hasattr(obj, 'is_foreign_currency'):
+            return obj.is_foreign_currency
+        else:
+            currency = self.get_currency_code(obj)
+            return currency != 'KES'
+
+    # KES EQUIVALENT METHODS
+    def get_total_amt_kes(self, obj):
+        """Get total amount in KES (calculated)"""
+        if hasattr(obj, 'total_amt_kes'):
+            return float(obj.total_amt_kes)
+        else:
+            # Calculate on the fly if lazy property not available
+            currency = self.get_currency_code(obj)
+            exchange_rate = self.get_exchange_rate(obj)
+            if currency != 'KES':
+                return float(obj.total_amt * Decimal(str(exchange_rate)))
+            return float(obj.total_amt)
+
+    def get_balance_kes(self, obj):
+        """Get balance in KES (calculated)"""
+        if hasattr(obj, 'balance_kes'):
+            return float(obj.balance_kes)
+        else:
+            # Calculate on the fly
+            currency = self.get_currency_code(obj)
+            exchange_rate = self.get_exchange_rate(obj)
+            if currency != 'KES':
+                return float(obj.balance * Decimal(str(exchange_rate)))
+            return float(obj.balance)
+
+    def get_subtotal_kes(self, obj):
+        """Get subtotal in KES (calculated)"""
+        if hasattr(obj, 'subtotal_kes'):
+            return float(obj.subtotal_kes)
+        else:
+            # Calculate on the fly
+            currency = self.get_currency_code(obj)
+            exchange_rate = self.get_exchange_rate(obj)
+            if currency != 'KES':
+                return float(obj.subtotal * Decimal(str(exchange_rate)))
+            return float(obj.subtotal)
+
+    def get_tax_total_kes(self, obj):
+        """Get tax total in KES (calculated)"""
+        if hasattr(obj, 'tax_total_kes'):
+            return float(obj.tax_total_kes)
+        else:
+            # Calculate on the fly
+            currency = self.get_currency_code(obj)
+            exchange_rate = self.get_exchange_rate(obj)
+            if currency != 'KES':
+                return float(obj.tax_total * Decimal(str(exchange_rate)))
+            return float(obj.tax_total)
 
     def get_status(self, obj):
-        """Calculate status based on balance"""
+        """Calculate status based on balance in original currency"""
         if obj.balance == 0:
             return 'applied'
         elif obj.balance > 0:
+            return 'pending'
+        return 'void'
+
+    def get_status_kes(self, obj):
+        """Calculate status based on KES balance"""
+        balance_kes = self.get_balance_kes(obj)
+        if balance_kes == 0:
+            return 'applied'
+        elif balance_kes > 0:
             return 'pending'
         return 'void'
 
@@ -150,7 +311,7 @@ class CreditNoteSerializer(serializers.ModelSerializer):
         if latest_submission:
             return KRASubmissionSerializer(latest_submission).data
         return None
-
+    
 class CreditNoteUpdateSerializer(serializers.ModelSerializer):
     """Serializer for updating credit note related_invoice field WITH VALIDATION"""
     
@@ -226,12 +387,19 @@ class CreditNoteDetailSerializer(CreditNoteSerializer):
     
     total_line_items = serializers.SerializerMethodField()
     tax_breakdown = serializers.SerializerMethodField()
+    tax_breakdown_kes = serializers.SerializerMethodField()
     applied_amount = serializers.SerializerMethodField()
+    applied_amount_kes = serializers.SerializerMethodField()
     remaining_amount = serializers.SerializerMethodField()
+    remaining_amount_kes = serializers.SerializerMethodField()
+    original_invoice_currency_match = serializers.SerializerMethodField()
+    currency_conversion_warning = serializers.SerializerMethodField()
 
     class Meta(CreditNoteSerializer.Meta):
         fields = CreditNoteSerializer.Meta.fields + [
-            "total_line_items", "tax_breakdown", "applied_amount", "remaining_amount"
+            "total_line_items", "tax_breakdown", "tax_breakdown_kes",
+            "applied_amount", "applied_amount_kes", "remaining_amount", "remaining_amount_kes",
+            "original_invoice_currency_match", "currency_conversion_warning"
         ]
 
     def get_total_line_items(self, obj):
@@ -239,7 +407,7 @@ class CreditNoteDetailSerializer(CreditNoteSerializer):
         return obj.line_items.count()
 
     def get_tax_breakdown(self, obj):
-        """Get tax breakdown information"""
+        """Get tax breakdown information in original currency"""
         return {
             "subtotal": float(obj.subtotal),
             "tax_total": float(obj.tax_total),
@@ -247,32 +415,97 @@ class CreditNoteDetailSerializer(CreditNoteSerializer):
             "tax_rate_percentage": float(obj.tax_percent)
         }
 
+    def get_tax_breakdown_kes(self, obj):
+        """Get tax breakdown information in KES"""
+        return {
+            "subtotal_kes": self.get_subtotal_kes(obj),
+            "tax_total_kes": self.get_tax_total_kes(obj),
+            "total_amount_kes": self.get_total_amt_kes(obj),
+            "tax_rate_percentage": float(obj.tax_percent)
+        }
+
     def get_applied_amount(self, obj):
-        """Get the amount that has been applied"""
+        """Get the amount that has been applied in original currency"""
         return float(obj.total_amt - obj.balance)
 
+    def get_applied_amount_kes(self, obj):
+        """Get the amount that has been applied in KES"""
+        return self.get_total_amt_kes(obj) - self.get_balance_kes(obj)
+
     def get_remaining_amount(self, obj):
-        """Get the remaining balance"""
+        """Get the remaining balance in original currency"""
         return float(obj.balance)
 
+    def get_remaining_amount_kes(self, obj):
+        """Get the remaining balance in KES"""
+        return self.get_balance_kes(obj)
+
+    def get_original_invoice_currency_match(self, obj):
+        """Check if credit note currency matches original invoice currency"""
+        if hasattr(obj, 'original_invoice_currency_match'):
+            return obj.original_invoice_currency_match
+        return True  # Default to True if property not available
+
+    def get_currency_conversion_warning(self, obj):
+        """Get warning message if currencies don't match"""
+        if hasattr(obj, 'currency_conversion_warning'):
+            return obj.currency_conversion_warning
+        return None
 
 class CreditNoteSummarySerializer(serializers.ModelSerializer):
-    """Serializer for credit note summary/list views"""
+    """Serializer for credit note summary/list views with currency support"""
     
     status = serializers.SerializerMethodField()
-    currency_code = serializers.CharField(source='company.currency_code', read_only=True)
+    currency_code = serializers.SerializerMethodField()  # CHANGED: from company.currency_code
     has_kra_submission = serializers.SerializerMethodField()
     kra_status = serializers.SerializerMethodField()
+    is_foreign_currency = serializers.SerializerMethodField()
+    total_amt_kes = serializers.SerializerMethodField()
 
     class Meta:
         model = CreditNote
         fields = [
             "id", "qb_credit_id", "doc_number", "txn_date", "customer_name",
-            "total_amt", "balance", "subtotal", "tax_total",
-            "tax_percent", "status", "currency_code",
+            "total_amt", "total_amt_kes", "balance", "subtotal", "tax_total",
+            "tax_percent", "status", "currency_code", "is_foreign_currency",
             "is_kra_validated", "has_kra_submission",
             "kra_status", "created_at"
         ]
+
+    def get_currency_code(self, obj):
+        """Get the credit note's currency code"""
+        if hasattr(obj, 'effective_currency'):
+            return obj.effective_currency
+        elif hasattr(obj, 'currency_ref_value') and obj.currency_ref_value:
+            return obj.currency_ref_value
+        else:
+            return 'KES'
+
+    def get_is_foreign_currency(self, obj):
+        """Check if credit note is in foreign currency"""
+        if hasattr(obj, 'is_foreign_currency'):
+            return obj.is_foreign_currency
+        else:
+            currency = self.get_currency_code(obj)
+            return currency != 'KES'
+
+    def get_total_amt_kes(self, obj):
+        """Get total amount in KES"""
+        if hasattr(obj, 'total_amt_kes'):
+            return float(obj.total_amt_kes)
+        else:
+            # Calculate on the fly
+            currency = self.get_currency_code(obj)
+            if hasattr(obj, 'effective_exchange_rate'):
+                exchange_rate = obj.effective_exchange_rate
+            elif hasattr(obj, 'exchange_rate'):
+                exchange_rate = obj.exchange_rate
+            else:
+                exchange_rate = Decimal('1.0')
+            
+            if currency != 'KES':
+                return float(obj.total_amt * exchange_rate)
+            return float(obj.total_amt)
 
     def get_status(self, obj):
         """Calculate status based on balance"""
@@ -293,7 +526,6 @@ class CreditNoteSummarySerializer(serializers.ModelSerializer):
         
         latest_submission = obj.kra_submissions.order_by('-created_at').first()
         return latest_submission.status if latest_submission else 'not_submitted'
-    
 
 class InvoiceCreditSummarySerializer(serializers.ModelSerializer):
     """Serializer for invoice with credit summary information"""
