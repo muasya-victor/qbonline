@@ -255,6 +255,8 @@ class QuickBooksInvoiceService:
         try:
             url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
             query = f"SELECT * FROM Customer WHERE Id = '{customer_qb_id}'"
+
+            print("base url", BASE_URL)
             
             logger.info(f"🔍 Fetching customer {customer_qb_id} from QuickBooks...")
             
