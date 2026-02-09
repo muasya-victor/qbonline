@@ -69,10 +69,10 @@ class QuickBooksInvoiceService:
         url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
         all_invoices = []
         start_position = 1
-        batch_size = 500  
+        batch_size = 700  
 
         # Calculate timestamp for 2 days ago in UTC
-        two_days_ago = (datetime.now(tz.utc) - timedelta(days=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        two_days_ago = (datetime.now(tz.utc) - timedelta(days=15)).strftime("%Y-%m-%dT%H:%M:%SZ")
         
         logger.info(f"🔄 Fetching invoices updated since {two_days_ago} for company {self.company.realm_id}")
 
@@ -255,8 +255,6 @@ class QuickBooksInvoiceService:
         try:
             url = f"{BASE_URL}/v3/company/{self.company.realm_id}/query"
             query = f"SELECT * FROM Customer WHERE Id = '{customer_qb_id}'"
-
-            print("base url", BASE_URL)
             
             logger.info(f"🔍 Fetching customer {customer_qb_id} from QuickBooks...")
             
@@ -1020,10 +1018,4 @@ class QuickBooksCreditNoteService:
         except Exception as e:
             logger.error(f"Failed to sync credit notes for company {self.company.realm_id}: {str(e)}")
             raise
-
-
-
-
-
-
 
