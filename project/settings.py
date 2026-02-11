@@ -35,7 +35,8 @@ ALLOWED_HOSTS = ["localhost",
                     "212.47.77.18",
                     "api.prod.v2.smartinvoice.co.ke",
                     "api.sbx.v2.smartinvoice.co.ke",
-                    "staging.v2.smartinvoice.co.ke"
+                    "staging.v2.smartinvoice.co.ke",
+                    "api.prod.v3.smartinvoice.co.ke"
                 ]
 
 SESSION_COOKIE_SAMESITE = 'Lax'
