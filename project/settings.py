@@ -102,6 +102,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://qbo-ui.netlify.app",
     "https://qb-ui-staging.netlify.app",
     "https://prod.v2.smartinvoice.co.ke",
+    "https://prod.v3.smartinvoice.co.ke",
     "https://sbx.v2.smartinvoice.co.ke",
 ]
 
